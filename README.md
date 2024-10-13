@@ -1,6 +1,8 @@
 # Videoconf - AaaS :-)
 
-Videoconf is a robust Video Conference API as a Service platform (AaaS :-)) that provides seamless integration of video conferencing capabilities into JavaScript (React, Angular, etc.) and Node.js applications.
+Videoconf is a robust Video Conference API as a Service platform (AaaS :-)) that
+provides seamless integration of video conferencing capabilities into JavaScript
+(React, Angular, etc.) and Node.js applications.
 
 ## 🚀 Features
 
@@ -27,7 +29,8 @@ Videoconf consists of three main components:
 2. **Client SDK**: Provides easy integration for web applications
 3. **MongoDB Database**: Stores user and session data
 
-The entire stack is deployed on Kubernetes for optimal performance and scalability.
+The entire stack is deployed on Kubernetes for optimal performance and
+scalability.
 
 ## 🚦 Getting Started
 
@@ -38,62 +41,66 @@ The entire stack is deployed on Kubernetes for optimal performance and scalabili
 - MongoDB
 - Kubernetes cluster
 
-### Installation
+### ☸️ Getting it Up - k8s
+
+A working kubernetes cluster is needed for this project
 
 1. Clone the repository:
    ```
-   git clone https://github.com/yourusername/videoconf.git
+   git clone https://github.com/r3tro56/go-videoconf.git
    ```
 
-2. Install dependencies:
+2. Setup the Kubernetes Cluster:
    ```
-   cd videoconf
-   npm install
-   ```
-
-3. Set up environment variables (see `.env.example`)
-
-4. Start the development server:
-   ```
-   npm run dev
+   cd videoconf/.deployment
+   bash ./01-deploy-db.sh
+   bash ./02-configure-mongodb-repset.sh
+   bash ./03-deploy-rest.sh
    ```
 
 ## 📚 Documentation
 
-For detailed documentation on how to use the Videoconf API and SDK, please visit our [documentation site](https://docs.videoconf.example.com).
+For detailed documentation on how to use the Videoconf API and SDK, please visit
+our [documentation site](https://docs.videoconf.example.com).
 
-## 🔧 Usage
+## 🔧 SDK Usage
 
-Here's a quick example of how to use the Videoconf SDK in a React application:
+Here's a quick example of how to use the Videoconf SDK (ES6) in a React
+application:
 
 ```javascript
-import { VideoconfSDK } from 'videoconf-sdk';
+import { VideoconfSDK, VideoContainer } from "videoconf-sdk";
 
-const videoconf = new VideoconfSDK('YOUR_API_KEY');
+const videoconf = new VideoconfSDK("YOUR_API_KEY", "PROJECT_ID");
 
 function VideoCall() {
-  useEffect(() => {
-    videoconf.initializeCall('room-id');
-  }, []);
+   useEffect(() => {
+      videoconf.initializeCall("room-id");
+   }, []);
 
-  return <div id="video-container"></div>;
+   return <VideoContainer videoconf={videoConf} />;
 }
 ```
 
 ## 🤝 Contributing
 
-We welcome contributions to Videoconf! Please see our [Contributing Guide](CONTRIBUTING.md) for more details.
+We welcome contributions to Videoconf! Please see our
+[Contributing Guide](CONTRIBUTING.md) for more details.
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
+for details.
 
 ## 📞 Support
 
-If you encounter any issues or have questions, please file an issue on GitHub or contact our support team at [Support](support@ankurdebnath.me).
+If you encounter any issues or have questions, please file an issue on GitHub or
+contact our support team at [Support](support@ankurdebnath.me).
 
 ## 🙏 Tech Used
 
 - [Gin Web Framework](https://github.com/gin-gonic/gin)
 - [MongoDB Go Driver](https://github.com/mongodb/mongo-go-driver)
 - [WebRTC](https://webrtc.org/)
+- [NodeJS](https://nodejs.org)
+- [ReactJS](https://reactjs.dev)
