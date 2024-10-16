@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 	"os"
 
 	"github.com/gin-contrib/cors"
@@ -11,19 +12,19 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	"videoconf.com/videoconf/src/controllers"
-	"videoconf.com/videoconf/src/interfaces"
-	"videoconf.com/videoconf/src/utils"
+	"github.com/r3tr056/go-videoconf/signalling-server/controllers"
+	"github.com/r3tr056/go-videoconf/signalling-server/interfaces"
+
+	"github.com/hashicorp/consul/api"
 )
 
-var upgrader = websocket.Upgrader {
+var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
 		return true
 	},
 }
 
-var sockets = make(map[string]map[string]*interfaces.Connetion)
-
+var sockets = make(map[string]map[string]*interfaces.Connection)
 
 func wshandler(w http.ResponseWriter, r *http.Request, socket string) {
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -64,7 +65,6 @@ func wshandler(w http.ResponseWriter, r *http.Request, socket string) {
 				log.Printf("Websocket error: %s", err)
 				delete(clients, message.UserID)
 			}
-			break
 
 		case "disconnect":
 			for user, client := range clients {
@@ -75,7 +75,6 @@ func wshandler(w http.ResponseWriter, r *http.Request, socket string) {
 				}
 			}
 			delete(clients, message.UserID)
-			break
 		default:
 			for user, client := range clients {
 				err := client.Send(message)
@@ -88,7 +87,7 @@ func wshandler(w http.ResponseWriter, r *http.Request, socket string) {
 }
 
 func main() {
-	file, err := os.OpenFile("info.log", os.O_CREATE | os.O_APPEND | os.O_WRONLY, 0644)
+	file, err := os.OpenFile("info.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -102,14 +101,38 @@ func main() {
 	router := gin.Default()
 	router.Use(cors.Default())
 
-	credential := options.Credential {
+	credential := options.Credential{
 		Username: "root",
 		Password: "rootpassword",
 	}
 	clientOptions := options.Client().ApplyURI("mongodb://" + getenv("DB_URL", "localhost") + ":" + getenv("DB_PORT", "27017")).SetAuth(credential)
 	client, err := mongo.Connect(context.TODO(), clientOptions)
-	if errr != nil {
+	if err != nil {
 		log.Fatal(err)
+	}
+
+	// Consul Client
+	consulConfig := api.DefaultConfig()
+	consulConfig.Address = "http://localhost:8500"
+	consulClient, err := api.NewClient(consulConfig)
+	if err != nil {
+		log.Fatal("Error creating Consul client:", err)
+	}
+
+	registration := &api.AgentServiceRegistration{
+		ID:      "signalling-service",
+		Name:    "signalling-service",
+		Address: "127.0.0.1",
+		Port:    8080,
+		Check: &api.AgentServiceCheck{
+			HTTP:     "http://127.0.0.1:8080/health",
+			Interval: "10s",
+		},
+	}
+
+	err = consulClient.Agent().ServiceRegister(registration)
+	if err != nil {
+		log.Fatal("Error registering service with Consul: ", err)
 	}
 
 	err = client.Ping(context.TODO(), nil)
@@ -128,8 +151,13 @@ func main() {
 	router.POST("/session", controllers.CreateSession)
 	router.GET("/connect", controllers.GetSession)
 	router.POST("/connect/:url", controllers.ConnectSession)
+	router.GET("/health", func(ctx *gin.Context) {
+		ctx.JSON(200, gin.H{
+			"message": "Service is Healthy",
+		})
+	})
 
-	router.GET("/ws/:socket", func (c *gin.Context) {
+	router.GET("/ws/:socket", func(c *gin.Context) {
 		socket := c.Param("socket")
 		wshandler(c.Writer, c.Request, socket)
 	})
@@ -137,7 +165,7 @@ func main() {
 	router.Run(":" + getenv("PORT", "8080"))
 }
 
-func getenv(key, fallback stirng) string {
+func getenv(key, fallback string) string {
 	value := os.Getenv(key)
 	if len(value) == 0 {
 		return fallback

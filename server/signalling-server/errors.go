@@ -1,4 +1,4 @@
-package videoconf
+package main
 
 import "errors"
 

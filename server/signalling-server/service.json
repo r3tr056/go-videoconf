@@ -1,0 +1,14 @@
+{
+    "service": {
+        "name": "signalling-server",
+        "tags": ["go", "api"],
+        "port": 8080,
+        "check": {
+            "id": "signalling-server-check",
+            "name": "HTTP Health Check",
+            "http": "http://localhost:8080/health",
+            "interval": "10s",
+            "timeout": "1s"
+        }
+    }
+}

@@ -3,9 +3,10 @@ package controllers
 import (
 	"crypto/sha1"
 	"encoding/hex"
-	"videoconf.com/videoconf/src/interfaces"
-	"videoconf.com/videoconf/src/utils"
 	"net/http"
+
+	"github.com/r3tr056/go-videoconf/signalling-server/interfaces"
+	"github.com/r3tr056/go-videoconf/signalling-server/utils"
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
@@ -14,7 +15,7 @@ import (
 )
 
 func ConnectSession(ctx *gin.Context) {
-	db := ctx.MustGet("db").(*mongo.Client);
+	db := ctx.MustGet("db").(*mongo.Client)
 	collection := db.Database("vidchat").Collection("sockets")
 
 	url := ctx.Param("url")
@@ -55,13 +56,13 @@ func ConnectSession(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"title": session.Title,
+		"title":  session.Title,
 		"socket": socket.SocketURL,
 	})
 }
 
 func GetSession(ctx *gin.Context) {
-	db :=ctx.MustGet("db").(*mongo.Client)
+	db := ctx.MustGet("db").(*mongo.Client)
 	collection := db.Database("vidchat").Collection("sockets")
 
 	id := ctx.Request.URL.Query()["url"][0]

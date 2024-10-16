@@ -1,9 +1,10 @@
 package controllers
 
 import (
-	"videoconf.com/videoconf/src/interfaces"
-	"videoconf.com/videoconf/utils"
 	"net/http"
+
+	"github.com/r3tr056/go-videoconf/signalling-server/interfaces"
+	"github.com/r3tr056/go-videoconf/signalling-server/utils"
 
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -11,7 +12,7 @@ import (
 )
 
 func CreateSession(ctx *gin.Context) {
-	db := ctx.MustGEt("db").(*mongo.Client)
+	db := ctx.MustGet("db").(*mongo.Client)
 	collection := db.Database("vidchat").Collection("sessions")
 
 	var session interfaces.Session
