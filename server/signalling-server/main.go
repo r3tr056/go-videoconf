@@ -14,8 +14,6 @@ import (
 
 	"github.com/r3tr056/go-videoconf/signalling-server/controllers"
 	"github.com/r3tr056/go-videoconf/signalling-server/interfaces"
-
-	"github.com/hashicorp/consul/api"
 )
 
 var upgrader = websocket.Upgrader{
@@ -29,7 +27,7 @@ var sockets = make(map[string]map[string]*interfaces.Connection)
 func wshandler(w http.ResponseWriter, r *http.Request, socket string) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Fatal("Error handling websocket connection.")
+		log.Printf("Error handling websocket connection: %v", err)
 		return
 	}
 
@@ -68,18 +66,23 @@ func wshandler(w http.ResponseWriter, r *http.Request, socket string) {
 
 		case "disconnect":
 			for user, client := range clients {
-				err := client.Send(message)
-				if err != nil {
-					client.Socket.Close()
-					delete(clients, user)
+				if user != message.UserID {
+					err := client.Send(message)
+					if err != nil {
+						client.Socket.Close()
+						delete(clients, user)
+					}
 				}
 			}
 			delete(clients, message.UserID)
 		default:
+			// Relay message to all other clients
 			for user, client := range clients {
-				err := client.Send(message)
-				if err != nil {
-					delete(clients, user)
+				if user != message.UserID {
+					err := client.Send(message)
+					if err != nil {
+						delete(clients, user)
+					}
 				}
 			}
 		}
@@ -87,73 +90,60 @@ func wshandler(w http.ResponseWriter, r *http.Request, socket string) {
 }
 
 func main() {
+	// Set up logging
 	file, err := os.OpenFile("info.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	defer file.Close()
 	log.SetOutput(file)
 
+	// CORS configuration
 	config := cors.DefaultConfig()
-	config.AllowOrigins = []string{getenv("HOST_URL", "localhost")}
+	config.AllowAllOrigins = true
+	config.AllowHeaders = []string{"Origin", "Content-Length", "Content-Type", "Authorization"}
+	config.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
 
 	router := gin.Default()
-	router.Use(cors.Default())
+	router.Use(cors.New(config))
 
+	// MongoDB connection
 	credential := options.Credential{
-		Username: "root",
-		Password: "rootpassword",
+		Username: getenv("DB_USERNAME", "root"),
+		Password: getenv("DB_PASSWORD", "rootpassword"),
 	}
-	clientOptions := options.Client().ApplyURI("mongodb://" + getenv("DB_URL", "localhost") + ":" + getenv("DB_PORT", "27017")).SetAuth(credential)
+	
+	dbHost := getenv("DB_URL", "localhost")
+	dbPort := getenv("DB_PORT", "27017")
+	clientOptions := options.Client().ApplyURI("mongodb://" + dbHost + ":" + dbPort).SetAuth(credential)
+	
 	client, err := mongo.Connect(context.TODO(), clientOptions)
 	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Consul Client
-	consulConfig := api.DefaultConfig()
-	consulConfig.Address = "http://localhost:8500"
-	consulClient, err := api.NewClient(consulConfig)
-	if err != nil {
-		log.Fatal("Error creating Consul client:", err)
-	}
-
-	registration := &api.AgentServiceRegistration{
-		ID:      "signalling-service",
-		Name:    "signalling-service",
-		Address: "127.0.0.1",
-		Port:    8080,
-		Check: &api.AgentServiceCheck{
-			HTTP:     "http://127.0.0.1:8080/health",
-			Interval: "10s",
-		},
-	}
-
-	err = consulClient.Agent().ServiceRegister(registration)
-	if err != nil {
-		log.Fatal("Error registering service with Consul: ", err)
+		log.Fatal("Failed to connect to MongoDB:", err)
 	}
 
 	err = client.Ping(context.TODO(), nil)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Failed to ping MongoDB:", err)
 	}
 
-	log.Println("MongoDB connection ok...")
+	log.Println("MongoDB connection established successfully")
 
-	// middleware - intercept requests to use our db controller
+	// Middleware to inject database client
 	router.Use(func(context *gin.Context) {
 		context.Set("db", client)
 		context.Next()
 	})
 
+	// Routes
 	router.POST("/session", controllers.CreateSession)
 	router.GET("/connect", controllers.GetSession)
 	router.POST("/connect/:url", controllers.ConnectSession)
+	
 	router.GET("/health", func(ctx *gin.Context) {
 		ctx.JSON(200, gin.H{
-			"message": "Service is Healthy",
+			"status":  "healthy",
+			"service": "signalling-server",
 		})
 	})
 
@@ -162,7 +152,9 @@ func main() {
 		wshandler(c.Writer, c.Request, socket)
 	})
 
-	router.Run(":" + getenv("PORT", "8080"))
+	port := getenv("PORT", "8080")
+	log.Printf("Signalling server starting on port %s", port)
+	router.Run(":" + port)
 }
 
 func getenv(key, fallback string) string {
