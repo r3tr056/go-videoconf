@@ -1,20 +1,38 @@
 services:
   
-  server:
+  signalling-server:
     restart: always
     build:
-      context: .
-      dockerfile: ./server/Dockerfile
-
+      context: ./server/signalling-server
+      dockerfile: Dockerfile
     ports:
       - "8080:8080"
-
     environment:
-      HOST_URL: localhost
+      HOST_URL: http://localhost
       DB_URL: mongodb
       DB_PORT: 27017
       PORT: 8080
+    networks:
+      - videoconf
+    depends_on:
+      - mongodb
 
+  users-service:
+    restart: always
+    build:
+      context: ./server/users-service
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      DB_HOST: mongodb
+      DB_PORT: 27017
+      DB_NAME: vidchat
+      DB_USERNAME: root
+      DB_PASSWORD: rootpassword
+      PORT: 8081
+      JWT_SECRET: your-secret-key
+      JWT_ISSUER: VideoConf
     networks:
       - videoconf
     depends_on:
@@ -41,23 +59,25 @@ services:
       dockerfile: Dockerfile
     ports:
       - "3000:80"
+    networks:
+      - videoconf
 
   load-balancer:
     image: nginx:latest
-    container_name: load-blancer
+    container_name: load-balancer
     ports:
       - "80:80"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf
     depends_on:
       - videoconf-client
-      - server
+      - signalling-server
+      - users-service
     networks:
       - videoconf
 
-
 volumes:
-  mongodb_data_container
+  mongodb_data_container:
 
 networks:
   videoconf:

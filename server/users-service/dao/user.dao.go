@@ -1,4 +1,4 @@
-package database
+package dao
 
 import (
 	"gopkg.in/mgo.v2/bson"
@@ -14,7 +14,7 @@ type User struct {
 
 func (u *User) GetAll() ([]database.UserModel, error) {
 	sessionCopy := database.Database.MgDBSession.Copy()
-	defer sessionCopy.Copy()
+	defer sessionCopy.Close()
 
 	collection := sessionCopy.DB(database.Database.DatabaseName).C(common.UsersCol)
 
@@ -24,8 +24,11 @@ func (u *User) GetAll() ([]database.UserModel, error) {
 }
 
 func (u *User) GetByID(id string) (database.UserModel, error) {
-	var err error
-	err = u.utils.ValidateObjectId(id)
+	if u.utils == nil {
+		u.utils = &utils.Utils{}
+	}
+	
+	err := u.utils.ValidateObjectId(id)
 	if err != nil {
 		return database.UserModel{}, err
 	}
@@ -36,13 +39,16 @@ func (u *User) GetByID(id string) (database.UserModel, error) {
 	collection := sessionCopy.DB(database.Database.DatabaseName).C(common.UsersCol)
 
 	var user database.UserModel
-	err = collection.Find(bson.ObjectIdHex(id)).One(&user)
+	err = collection.Find(bson.M{"_id": bson.ObjectIdHex(id)}).One(&user)
 	return user, err
 }
 
 func (u *User) DeleteByID(id string) error {
-	var err error
-	err = u.utils.ValidateObjectId(id)
+	if u.utils == nil {
+		u.utils = &utils.Utils{}
+	}
+	
+	err := u.utils.ValidateObjectId(id)
 	if err != nil {
 		return err
 	}
