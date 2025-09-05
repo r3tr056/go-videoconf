@@ -1,0 +1,74 @@
+syntax = "proto3";
+
+package mediaserver;
+
+option go_package = "media-server-service/proto/mediaserver";
+
+message MediaSessionInfo {
+  string sessionId = 1;
+  string roomId = 2; // Room ID from Room Management Service
+  string participantId = 3; // Participant ID
+  string mediaServerId = 4; // ID of this Media Server instance
+}
+
+message StartSessionRequest {
+  MediaSessionInfo sessionInfo = 1;
+}
+
+message StartSessionResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message StopSessionRequest {
+  MediaSessionInfo sessionInfo = 1;
+}
+
+message StopSessionResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message WebRTCSignal {
+  string sessionId = 1;
+  string participantId = 2;
+  string sdp = 3; // SDP Offer or Answer
+  string candidate = 4; // ICE Candidate
+  string type = 5; // "offer", "answer", "candidate"
+}
+
+message SendWebRTCSignalRequest {
+  WebRTCSignal signal = 1;
+}
+
+message SendWebRTCSignalResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message ReceiveWebRTCSignalRequest {
+  string sessionId = 1;
+  string participantId = 2;
+}
+
+message ReceiveWebRTCSignalResponse {
+  WebRTCSignal signal = 1;
+}
+
+
+message HealthCheckRequest {}
+message HealthCheckResponse {
+  bool healthy = 1;
+}
+
+
+service MediaStreamingService {
+  rpc StartSession(StartSessionRequest) returns (StartSessionResponse);
+  rpc StopSession(StopSessionRequest) returns (StopSessionResponse);
+
+  // WebRTC Signaling methods
+  rpc SendWebRTCSignal(SendWebRTCSignalRequest) returns (SendWebRTCSignalResponse);
+  rpc ReceiveWebRTCSignal(ReceiveWebRTCSignalRequest) returns (stream ReceiveWebRTCSignalResponse); // Server-side stream for signals
+
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+}

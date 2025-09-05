@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package signaling;
+
+option go_package = "signaling-service/proto";
+
+message RoomInfo {
+  string roomId = 1;
+}
+
+message UserInfo {
+  string userId = 1;
+}
+
+message SignalingMessage {
+  string type = 1;
+  string roomId = 2;
+  string userId = 3;
+  string targetId = 4;
+  bytes payload = 5; // Use bytes for flexible payload
+}
+
+service SignalingService {
+  rpc CreateRoom(RoomInfo) returns (RoomInfo);
+  rpc JoinRoom(stream SignalingMessage) returns (stream SignalingMessage);
+  rpc LeaveRoom(UserInfo) returns (RoomInfo);
+  rpc SendMessage(SignalingMessage) returns (SignalingMessage); // For inter-service messages if needed
+  // ... other gRPC methods as needed for inter-service communication ...
+}

@@ -1,4 +1,17 @@
 services:
+
+  consul:
+    image: consul:latest
+    ports:
+      - "8300:8300"
+      - "8400:8400"
+      - "8500:8500"
+    links:
+      - users-ms
+      - signalling-ms
+      - videoconf-client
+    networks:
+      - videoconf
   
   server:
     restart: always

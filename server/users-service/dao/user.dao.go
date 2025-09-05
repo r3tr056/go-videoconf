@@ -1,4 +1,4 @@
-package database
+package dao
 
 import (
 	"gopkg.in/mgo.v2/bson"
@@ -52,5 +52,42 @@ func (u *User) DeleteByID(id string) error {
 
 	collection := sessionCopy.DB(database.Database.DatabaseName).C(common.UsersCol)
 	err = collection.Remove(bson.M{"_id": bson.ObjectIdHex(id)})
+	return err
+}
+
+func (u *User) Login(name string, password string) (database.UserModel, error) {
+	sessionCopy := database.Database.MgDBSession.Copy()
+	defer sessionCopy.Close()
+
+	collection := sessionCopy.DB(database.Database.DatabaseName).C(common.UsersCol)
+	var user database.UserModel
+	err := collection.Find(bson.M{"$and": []bson.M{{"name": name}, {"password": password}}}).One(&user)
+	return user, err
+}
+
+func (u *User) Insert(user database.UserModel) error {
+	sessionCopy := database.Database.MgDBSession.Copy()
+	defer sessionCopy.Close()
+
+	collection := sessionCopy.DB(database.Database.DatabaseName).C(common.UsersCol)
+	err := collection.Insert(&user)
+	return err
+}
+
+func (u *User) Delete(user database.UserModel) error {
+	sessionCopy := database.Database.MgDBSession.Copy()
+	defer sessionCopy.Close()
+
+	collection := sessionCopy.DB(database.Database.DatabaseName).C(common.UsersCol)
+	err := collection.Remove(&user)
+	return err
+}
+
+func (u *User) Update(user database.UserModel) error {
+	sessionCopy := database.Database.MgDBSession.Copy()
+	defer sessionCopy.Close()
+
+	collection := sessionCopy.DB(database.Database.DatabaseName).C(common.UsersCol)
+	err := collection.UpdateId(user.ID, &user)
 	return err
 }

@@ -15,6 +15,11 @@ type StdClaims struct {
 	jwt_lib.StandardClaims
 }
 
+type HTTPError struct {
+	Code    int    `json:"code" example:"500"`
+	Message string `json:"message" example:"Example error message"`
+}
+
 type Utils struct {
 }
 
