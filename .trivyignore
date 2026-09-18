@@ -1,0 +1,19 @@
+# Trivy exceptions. Policy: runtime/shipped dependencies must be clean; these
+# entries are all react-scripts build-toolchain transitives that never ship in
+# the static client bundle (webpack/babel/jest/eslint/svgr at build time only).
+# Each entry is one CVE ID so future advisories in the same packages still alert.
+# Revisit on every react-scripts upgrade.
+
+# nth-check via css-select/svgr: no fixed 1.x, major bump breaks CRA 5 build.
+CVE-2021-3803
+
+# postcss 7 via resolve-url-loader chain: major-only fix, breaks CRA 5 build.
+CVE-2026-45623
+CVE-2026-73646
+
+# serialize-javascript via terser-webpack-plugin: major-only fix.
+GHSA-5c6j-r48x-rmvq
+
+# svgo 1.x via @svgr/webpack: major-only fix, breaks CRA 5 build.
+CVE-2026-73650
+CVE-2026-84370

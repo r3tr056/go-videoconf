@@ -1,771 +1,257 @@
-# VideoConf - Production Deployment Guide
+# VideoConf Deployment Guide
 
-## 🏗️ Architecture Overview
+Self-hosting guide for the v1 stack: Docker Compose (primary), TURN, TLS,
+configuration, and capacity. Kubernetes/Helm packaging lands with the v1
+packaging work (see [implementation plan](./IMPLEMENTATION_PLAN.md));
+raw legacy manifests in `.deployment/` are superseded by that work.
+
+## Architecture
 
 ```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Load Balancer │    │   Kubernetes    │    │   Monitoring    │
-│    (Nginx)      │    │   Cluster       │    │  (Prometheus)   │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-         │                       │                       │
-         │              ┌─────────────────┐              │
-         │              │  Ingress Ctrl   │              │
-         │              └─────────────────┘              │
-         │                       │                       │
-    ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-    │   Users Service │    │Signalling Server│    │   Media Relay   │
-    │   (Port 8081)   │    │   (Port 8080)   │    │   (TURN/STUN)   │
-    └─────────────────┘    └─────────────────┘    └─────────────────┘
-             │                       │                       │
-             │              ┌─────────────────┐              │
-             │              │    MongoDB      │              │
-             │              │  (Replica Set)  │              │
-             │              └─────────────────┘              │
-             │                                               │
-    ┌─────────────────┐                            ┌─────────────────┐
-    │     Redis       │                            │     CDN         │
-    │ (Session Store) │                            │  (Static Files) │
-    └─────────────────┘                            └─────────────────┘
+                    ┌─────────────────┐
+                    │  Load Balancer  │
+                    │  (Nginx, :80)   │
+                    └────────┬────────┘
+         ┌───────────────────┼───────────────────┐
+         │                   │                   │
+┌────────┴────────┐ ┌────────┴────────┐ ┌────────┴────────┐
+│ Signalling :8080│ │  Users   :8081  │ │ Client    :80   │
+│ sessions + WS   │ │ auth + users    │ │ (React demo)    │
+└────────┬────────┘ └────────┬────────┘ └─────────────────┘
+         │                   │
+┌────────┴───────────────────┴────────┐  ┌─────────────────┐
+│ MongoDB :27017 (sessions + users)   │  │ TURN :3478      │
+└─────────────────────────────────────┘  │ (coturn relay)  │
+                                         └─────────────────┘
 ```
 
-## 🚀 Deployment Options
+Media flows peer-to-peer between browsers (STUN first, TURN relay when
+needed); the servers handle signalling, auth, and session state only.
 
-### Option 1: Docker Compose (Development/Small Scale)
-
-```yaml
-# docker-compose.prod.yml
-version: '3.8'
-
-services:
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.prod.conf:/etc/nginx/nginx.conf
-      - ./ssl:/etc/ssl
-    depends_on:
-      - signalling-server
-      - users-service
-      - client
-    restart: unless-stopped
-
-  signalling-server:
-    build: ./server/signalling-server
-    environment:
-      - MONGODB_URI=mongodb://mongodb:27017/videoconf
-      - REDIS_URL=redis://redis:6379
-      - JWT_SECRET=${JWT_SECRET}
-      - TURN_SECRET=${TURN_SECRET}
-    depends_on:
-      - mongodb
-      - redis
-    restart: unless-stopped
-    deploy:
-      replicas: 3
-
-  users-service:
-    build: ./server/users-service
-    environment:
-      - MONGODB_URI=mongodb://mongodb:27017/videoconf
-      - JWT_SECRET=${JWT_SECRET}
-    depends_on:
-      - mongodb
-    restart: unless-stopped
-    deploy:
-      replicas: 2
-
-  client:
-    build: ./client
-    environment:
-      - REACT_APP_SIGNALLING_SERVER=wss://your-domain.com
-      - REACT_APP_USERS_API=https://your-domain.com/api/users
-    restart: unless-stopped
-
-  mongodb:
-    image: mongo:5.0
-    environment:
-      - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USERNAME}
-      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD}
-    volumes:
-      - mongodb_data:/data/db
-      - ./scripts/mongo-init.js:/docker-entrypoint-initdb.d/init.js
-    restart: unless-stopped
-
-  redis:
-    image: redis:7-alpine
-    volumes:
-      - redis_data:/data
-    restart: unless-stopped
-
-  coturn:
-    image: coturn/coturn:latest
-    network_mode: host
-    environment:
-      - TURN_SECRET=${TURN_SECRET}
-    volumes:
-      - ./coturn.conf:/etc/coturn/turnserver.conf
-    restart: unless-stopped
-
-volumes:
-  mongodb_data:
-  redis_data:
-```
-
-### Option 2: Kubernetes (Production Scale)
-
-```yaml
-# k8s/namespace.yaml
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: videoconf
----
-# k8s/mongodb.yaml
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: mongodb
-  namespace: videoconf
-spec:
-  serviceName: mongodb
-  replicas: 3
-  selector:
-    matchLabels:
-      app: mongodb
-  template:
-    metadata:
-      labels:
-        app: mongodb
-    spec:
-      containers:
-      - name: mongodb
-        image: mongo:5.0
-        ports:
-        - containerPort: 27017
-        env:
-        - name: MONGO_INITDB_ROOT_USERNAME
-          valueFrom:
-            secretKeyRef:
-              name: mongodb-secret
-              key: username
-        - name: MONGO_INITDB_ROOT_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: mongodb-secret
-              key: password
-        volumeMounts:
-        - name: mongodb-storage
-          mountPath: /data/db
-  volumeClaimTemplates:
-  - metadata:
-      name: mongodb-storage
-    spec:
-      accessModes: ["ReadWriteOnce"]
-      resources:
-        requests:
-          storage: 20Gi
----
-# k8s/signalling-server.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: signalling-server
-  namespace: videoconf
-spec:
-  replicas: 5
-  selector:
-    matchLabels:
-      app: signalling-server
-  template:
-    metadata:
-      labels:
-        app: signalling-server
-    spec:
-      containers:
-      - name: signalling-server
-        image: ghcr.io/r3tr056/go-videoconf/signalling-server:latest
-        ports:
-        - containerPort: 8080
-        env:
-        - name: MONGODB_URI
-          value: mongodb://mongodb:27017/videoconf
-        - name: REDIS_URL
-          value: redis://redis:6379
-        - name: JWT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: app-secrets
-              key: jwt-secret
-        resources:
-          requests:
-            memory: "128Mi"
-            cpu: "100m"
-          limits:
-            memory: "512Mi"
-            cpu: "500m"
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 8080
-          initialDelaySeconds: 30
-          periodSeconds: 10
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 8080
-          initialDelaySeconds: 5
-          periodSeconds: 5
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: signalling-server
-  namespace: videoconf
-spec:
-  selector:
-    app: signalling-server
-  ports:
-  - port: 8080
-    targetPort: 8080
-  type: ClusterIP
----
-# k8s/ingress.yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: videoconf-ingress
-  namespace: videoconf
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
-    nginx.ingress.kubernetes.io/websocket-services: "signalling-server"
-    cert-manager.io/cluster-issuer: "letsencrypt-prod"
-spec:
-  tls:
-  - hosts:
-    - your-domain.com
-    secretName: videoconf-tls
-  rules:
-  - host: your-domain.com
-    http:
-      paths:
-      - path: /api/signalling
-        pathType: Prefix
-        backend:
-          service:
-            name: signalling-server
-            port:
-              number: 8080
-      - path: /api/users
-        pathType: Prefix
-        backend:
-          service:
-            name: users-service
-            port:
-              number: 8081
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: client
-            port:
-              number: 80
-```
-
-## 🔧 Configuration
-
-### Environment Variables
+## Quickstart (Docker Compose)
 
 ```bash
-# Production environment file (.env.prod)
-
-# Database
-MONGODB_URI=mongodb://user:password@mongodb:27017/videoconf?authSource=admin
-REDIS_URL=redis://redis:6379
-
-# Security
-JWT_SECRET=your-super-secure-jwt-secret-256-bits
-TURN_SECRET=your-turn-server-secret
-
-# Services
-SIGNALLING_SERVER_PORT=8080
-USERS_SERVICE_PORT=8081
-
-# External Services
-TURN_SERVER_URL=turn:your-turn-server.com:3478
-STUN_SERVER_URL=stun:stun.l.google.com:19302
-
-# Monitoring
-PROMETHEUS_ENDPOINT=http://prometheus:9090
-GRAFANA_ENDPOINT=http://grafana:3000
-
-# CDN
-CDN_URL=https://cdn.your-domain.com
-STATIC_FILES_URL=https://static.your-domain.com
-
-# SSL
-SSL_CERT_PATH=/etc/ssl/certs/your-domain.crt
-SSL_KEY_PATH=/etc/ssl/private/your-domain.key
+git clone https://github.com/r3tr056/go-videoconf.git
+cd go-videoconf
+cp .env.example .env
+# Edit .env: set JWT_SECRET, TURN_USER, TURN_PASSWORD (all required).
+docker compose up --build -d
 ```
 
-### NGINX Configuration
+Then open http://localhost (client), signalling on :8080, users on :8081,
+TURN on :3478. `docker compose logs -f` to follow logs.
 
-```nginx
-# nginx.prod.conf
-events {
-    worker_connections 1024;
-}
+## Configuration
 
-http {
-    upstream signalling_backend {
-        server signalling-server:8080;
-        server signalling-server:8080;
-        server signalling-server:8080;
-    }
+All settings live in `.env` (see `.env.example`). Required values fail fast:
+compose refuses to start (`:?` gates) and the users service exits when
+`JWT_SECRET` is missing. Never commit `.env` with real secrets.
 
-    upstream users_backend {
-        server users-service:8081;
-        server users-service:8081;
-    }
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `JWT_SECRET` | yes | — | HS256 signing secret (long, random) |
+| `JWT_ISSUER` | no | `VideoConf` | JWT issuer claim |
+| `DB_HOST` / `DB_PORT` | no | `mongodb` / `27017` | MongoDB (compose service) |
+| `DB_NAME` | no | `vidchat` | App database |
+| `DB_USERNAME` / `DB_PASSWORD` | no | `root` / `rootpassword` | Dev credentials — change in production |
+| `WS_ALLOWED_ORIGINS` | prod | empty (allow all) | CORS + WebSocket origin allowlist |
+| `TURN_USER` / `TURN_PASSWORD` | yes | — | TURN relay credentials |
+| `TURN_REALM` | no | `videoconf` | TURN realm |
+| `TURN_PUBLIC_URL` | no | `turn:localhost:3478` | TURN URL baked into the client build |
+| `TURN_EXTERNAL_IP` | WAN | — | coturn's public IP (uncomment in compose) |
 
-    # Rate limiting
-    limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
-    limit_req_zone $binary_remote_addr zone=websocket:10m rate=5r/s;
+The demo client loads TURN settings at runtime from `/turn-config.json`:
+compose images bake it from `TURN_*` at build (overridable with a file mount),
+Helm serves it from a ConfigMap, and `npm start` serves the dev defaults from
+`client/public/turn-config.json`.
 
-    server {
-        listen 80;
-        server_name your-domain.com;
-        return 301 https://$server_name$request_uri;
-    }
+## TURN (NAT traversal)
 
-    server {
-        listen 443 ssl http2;
-        server_name your-domain.com;
+The bundled coturn service (`coturn/coturn:4.6.3`) relays media when direct
+P2P fails. It listens on 3478/tcp+udp with UDP relay ports 49160–49200
+(~10 concurrent relayed calls; widen the range for more).
 
-        ssl_certificate /etc/ssl/certs/your-domain.crt;
-        ssl_certificate_key /etc/ssl/private/your-domain.key;
-        ssl_protocols TLSv1.2 TLSv1.3;
-        ssl_ciphers HIGH:!aNULL:!MD5;
+- **Localhost/LAN demo:** defaults work; browsers reach `turn:localhost:3478`
+  (or set `TURN_PUBLIC_URL` to the LAN host and rebuild the client).
+- **WAN deployment:** set `TURN_EXTERNAL_IP` to coturn's public IP and
+  uncomment the `--external-ip` line in `docker-compose.yml`, otherwise relay
+  candidates carry an unreachable internal address. Open 3478/tcp+udp and the
+  relay range on the host firewall.
+- **Limitation:** v1 uses static TURN credentials, which are visible to anyone
+  served the client bundle (inherent to static-credential TURN in browsers).
+  Time-limited REST credentials are future work.
 
-        # WebSocket upgrade
-        location /ws {
-            limit_req zone=websocket burst=20 nodelay;
-            proxy_pass http://signalling_backend;
-            proxy_http_version 1.1;
-            proxy_set_header Upgrade $http_upgrade;
-            proxy_set_header Connection "upgrade";
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_read_timeout 86400;
-        }
+Verify TURN with any WebRTC trickle-ICE page against your `TURN_PUBLIC_URL`
+and credentials: a `relay` candidate must appear.
 
-        # API routes
-        location /api/signalling {
-            limit_req zone=api burst=50 nodelay;
-            proxy_pass http://signalling_backend;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-        }
+## TLS
 
-        location /api/users {
-            limit_req zone=api burst=50 nodelay;
-            proxy_pass http://users_backend;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-        }
+Production traffic must be HTTPS/WSS (browsers also require a secure context
+for camera/mic, except localhost). Termination happens at Nginx:
 
-        # Static files
-        location / {
-            root /usr/share/nginx/html;
-            try_files $uri $uri/ /index.html;
-            
-            # Caching for static assets
-            location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)$ {
-                expires 1y;
-                add_header Cache-Control "public, immutable";
-            }
-        }
+1. Obtain a certificate (e.g. `certbot certonly --standalone -d meet.example.com`).
+2. Copy `fullchain.pem` + `privkey.pem` into `./certs/` (chmod 600 the key).
+3. Publish `443:443` and mount `./certs:/etc/nginx/certs:ro` on the
+   `load-balancer` service.
+4. Uncomment the `:443` server block in `nginx.conf` and set its `server_name`.
+5. Set `WS_ALLOWED_ORIGINS=https://meet.example.com` in `.env` and restart.
 
-        # Health check
-        location /health {
-            access_log off;
-            return 200 "healthy\n";
-            add_header Content-Type text/plain;
-        }
-    }
-}
-```
+The SDK derives `wss://` automatically from an `https://` page — no client
+change needed. Keep HSTS enabled (in the template) once TLS is verified.
 
-### TURN Server Configuration
+## Capacity
 
-```
-# coturn.conf
-listening-port=3478
-tls-listening-port=5349
-fingerprint
-lt-cred-mech
-use-auth-secret
-static-auth-secret=your-turn-server-secret
-realm=your-domain.com
-total-quota=100
-stale-nonce=600
-cert=/etc/ssl/certs/your-domain.crt
-pkey=/etc/ssl/private/your-domain.key
-no-stdout-log
-log-file=/var/log/coturn.log
-pidfile=/var/run/turnserver.pid
-```
+- **Room size:** mesh P2P is recommended for ~2–6 participants per room.
+- **Server cap:** the signalling server refuses WebSocket upgrades past
+  **8 members per socket** (HTTP 429; the SDK surfaces it as a join error).
+- **Scaling out:** run one signalling instance per deployment (rooms are
+  in-memory fan-out; cross-instance rooms need the v2 SFU). Session/user
+  state lives in MongoDB, so the REST paths scale horizontally behind Nginx.
+- A server-side SFU for larger rooms is the headline v2 item.
 
-## 📊 Monitoring & Observability
-
-### Prometheus Configuration
-
-```yaml
-# prometheus.yml
-global:
-  scrape_interval: 15s
-
-scrape_configs:
-  - job_name: 'signalling-server'
-    static_configs:
-      - targets: ['signalling-server:8080']
-    metrics_path: /metrics
-
-  - job_name: 'users-service'
-    static_configs:
-      - targets: ['users-service:8081']
-    metrics_path: /metrics
-
-  - job_name: 'nginx'
-    static_configs:
-      - targets: ['nginx:9113']
-
-  - job_name: 'mongodb'
-    static_configs:
-      - targets: ['mongodb-exporter:9216']
-
-  - job_name: 'redis'
-    static_configs:
-      - targets: ['redis-exporter:9121']
-```
-
-### Grafana Dashboard
-
-```json
-{
-  "dashboard": {
-    "title": "VideoConf Metrics",
-    "panels": [
-      {
-        "title": "Active Connections",
-        "type": "graph",
-        "targets": [
-          {
-            "expr": "sum(websocket_connections_active)",
-            "legendFormat": "Active WebSocket Connections"
-          }
-        ]
-      },
-      {
-        "title": "Request Rate",
-        "type": "graph",
-        "targets": [
-          {
-            "expr": "rate(http_requests_total[5m])",
-            "legendFormat": "{{method}} {{endpoint}}"
-          }
-        ]
-      },
-      {
-        "title": "Response Time",
-        "type": "graph",
-        "targets": [
-          {
-            "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))",
-            "legendFormat": "95th percentile"
-          }
-        ]
-      },
-      {
-        "title": "Error Rate",
-        "type": "graph",
-        "targets": [
-          {
-            "expr": "rate(http_requests_total{status=~\"5..\"}[5m])",
-            "legendFormat": "5xx errors"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-## 🔐 Security Hardening
-
-### SSL/TLS Configuration
+## Kubernetes (Helm)
 
 ```bash
-# Generate SSL certificates with Let's Encrypt
-certbot certonly --webroot -w /var/www/certbot -d your-domain.com
-
-# Auto-renewal script
-#!/bin/bash
-certbot renew --quiet
-docker-compose exec nginx nginx -s reload
+helm install videoconf ./helm/videoconf \
+  --set secrets.jwtSecret=$(openssl rand -base64 48) \
+  --set secrets.turnPassword=$(openssl rand -base64 32) \
+  --set ingress.host=meet.example.com \
+  --set signalling.wsAllowedOrigins=https://meet.example.com \
+  --set turn.publicUrl=turn:meet.example.com:3478 \
+  --set turn.externalIP=203.0.113.10
+# or: make deploy-k8s JWT_SECRET=... TURN_PASSWORD=... INGRESS_HOST=... TURN_PUBLIC_URL=...
 ```
 
-### Security Headers
+- TLS: create a TLS secret, then
+  `--set ingress.tls.enabled=true --set ingress.tls.secretName=<secret>`.
+- Images come from ghcr.io (`global.imageRepository` forks cleanly).
+- Signalling stays at 1 replica (in-memory rooms); users/client autoscale.
+- TURN runs with host networking for direct UDP; `turn.externalIP` must be the
+  node/public IP on WAN. The client gets TURN via a mounted ConfigMap, so no
+  image rebuild is needed per environment.
+- Upgrades re-run the same command as `helm upgrade`; removal is
+  `helm uninstall videoconf` (`make undeploy-k8s`).
 
-```nginx
-# Add to nginx configuration
-add_header X-Frame-Options DENY;
-add_header X-Content-Type-Options nosniff;
-add_header X-XSS-Protection "1; mode=block";
-add_header Strict-Transport-Security "max-age=31536000; includeSubDomains";
-add_header Content-Security-Policy "default-src 'self'; connect-src 'self' wss://your-domain.com; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';";
-```
+## MongoDB Operations
 
-### Firewall Rules
+Replica-set topology plus backup/restore runbooks land with the persistence
+phase. Until then: the compose volume `mongodb_data_container` holds all data
+— back it up before upgrades:
+
+### Indexes (created automatically at startup, idempotent)
+
+Both services share one logical database (`vidchat`): `sessions` + `sockets`
+(signalling) and `users` (users service). Both use the maintained
+`mongo-driver` (unified in v1.0.0; the legacy `mgo.v2` driver is gone).
+
+| Collection | Index | Purpose |
+|---|---|---|
+| `sockets` | `hashedUrl` unique | public session URL lookup per join; uniqueness guarantees one session per URL |
+| `users` | `name` | authentication lookup (no collection scan) |
+| `sessions`, `users` | `_id` (default) | primary key |
+
+### Backup and Restore (drill-tested)
+
+Back up with `mongodump` (indexes included in the dump):
 
 ```bash
-# UFW firewall configuration
-ufw allow 22/tcp    # SSH
-ufw allow 80/tcp    # HTTP
-ufw allow 443/tcp   # HTTPS
-ufw allow 3478/udp  # TURN
-ufw allow 5349/tcp  # TURN/TLS
-ufw deny incoming
-ufw allow outgoing
-ufw enable
+# Compose
+docker exec <mongo-container> sh -c \
+  'mongodump --username root --password "$MONGO_INITDB_ROOT_PASSWORD" \
+   --authenticationDatabase admin --db vidchat --out /tmp/vc-backup' \
+&& docker cp <mongo-container>:/tmp/vc-backup ./backup-$(date +%F)
 ```
 
-## 📈 Scaling Guidelines
-
-### Horizontal Scaling
-
-1. **Application Servers**: Scale signalling servers based on WebSocket connections
-   - Rule: 1 server per 1000 concurrent connections
-   - Use session affinity for WebSocket connections
-
-2. **Database**: Implement MongoDB replica sets
-   - Primary for writes
-   - Secondaries for reads
-   - Automatic failover
-
-3. **Load Balancing**: Use multiple load balancer instances
-   - Configure health checks
-   - Implement circuit breakers
-
-### Vertical Scaling
-
-```yaml
-# Resource requirements per service
-signalling-server:
-  requests:
-    cpu: 200m
-    memory: 256Mi
-  limits:
-    cpu: 1000m
-    memory: 1Gi
-
-users-service:
-  requests:
-    cpu: 100m
-    memory: 128Mi
-  limits:
-    cpu: 500m
-    memory: 512Mi
-```
-
-## 🚨 Disaster Recovery
-
-### Backup Strategy
+Restore (drops and replaces the database — stop writes first):
 
 ```bash
-#!/bin/bash
-# Daily backup script
-
-# MongoDB backup
-mongodump --uri="mongodb://user:pass@mongodb:27017/videoconf" --out="/backups/$(date +%Y%m%d)"
-
-# Redis backup
-redis-cli --rdb /backups/redis-$(date +%Y%m%d).rdb
-
-# Upload to cloud storage
-aws s3 sync /backups/ s3://your-backup-bucket/
+mongorestore --host <mongo-host> --username root --password <pw> \
+  --authenticationDatabase admin --db vidchat --drop ./backup-YYYY-MM-DD/vidchat
 ```
 
-### Recovery Procedures
+Verify after restore: `POST /auth` with a known user returns a token, and
+`POST /connect/<socket>` with a known session password returns its title.
+The v1.0.0 drill ran exactly this: dump → drop (APIs 400/401) → restore →
+identical socket URLs and working auth.
 
-1. **Database Recovery**:
-   ```bash
-   mongorestore --uri="mongodb://user:pass@mongodb:27017/videoconf" /backups/latest/
-   ```
+The compose volume `mongodb_data_container` holds all data; a filesystem
+snapshot of the volume is a valid cold backup too (stop mongo first).
 
-2. **Service Recovery**:
-   ```bash
-   kubectl rollout restart deployment/signalling-server -n videoconf
-   kubectl rollout restart deployment/users-service -n videoconf
-   ```
+### Replica Set (HA)
 
-## 📋 Health Checks
+For production HA, run 3 mongod instances as a replica set instead of the
+single compose/Helm instance:
 
-### Application Health Endpoints
+1. Start each member with `--replSet videoconf-rs` and a shared keyfile
+   (`openssl rand -base64 756 > mongo.key`, chmod 400, same file on all
+   members; Helm: mount it from a Secret).
+2. Initiate once: `mongosh --eval 'rs.initiate({_id:"videoconf-rs",
+   members:[{_id:0,host:"mongo-0:27017"},{_id:1,host:"mongo-1:27017"},
+   {_id:2,host:"mongo-2:27017"}]})'`.
+3. Point the services at the set (`DB_HOST=mongo-0,mongo-1,mongo-2` — the
+   driver discovers the primary). No application change is needed: the code
+   uses no transactions and tolerates primary stepdown via driver retry.
+4. Back up from a secondary with the `mongodump` command above.
 
-```go
-// Health check endpoint implementation
-func healthHandler(c *gin.Context) {
-    // Check database connectivity
-    if err := db.Ping(); err != nil {
-        c.JSON(503, gin.H{
-            "status": "unhealthy",
-            "error": "database connection failed",
-        })
-        return
-    }
-    
-    // Check Redis connectivity
-    if err := redis.Ping(); err != nil {
-        c.JSON(503, gin.H{
-            "status": "unhealthy",
-            "error": "redis connection failed",
-        })
-        return
-    }
-    
-    c.JSON(200, gin.H{
-        "status": "healthy",
-        "timestamp": time.Now(),
-        "version": "1.0.0",
-    })
-}
-```
+### Upgrades
 
-### Monitoring Scripts
+- **mongo:7.0** is the pinned server. Fresh installs start there directly.
+- **Driver:** both services use `mongo-driver` v1.17 (BSON-compatible with the
+  old `mgo` documents: `ObjectId` encodings are identical, so no data
+  migration was needed for the v1.0.0 driver switch).
+- **Index builds:** index setup runs at every startup and is a no-op once
+  indexes exist; unique `hashedUrl` builds fail only if true duplicates exist
+  (fix by deleting the ambiguous dup sessions first).
 
-```bash
-#!/bin/bash
-# Health monitoring script
+## Observability
 
-services=("signalling-server:8080" "users-service:8081")
+- **Liveness vs readiness:** `GET /health` is shallow (process alive);
+  `GET /ready` is deep (MongoDB reachable, 503 otherwise). Kubernetes probes
+  and the Helm chart use both; point load-balancer health checks at `/ready`.
+- **Metrics:** `GET /metrics` on :8080/:8081 exposes Prometheus metrics:
+  `videoconf_http_requests_total` and `videoconf_http_request_duration_seconds`
+  (by service/method/route/status), plus `videoconf_ws_connections_current`
+  and `videoconf_ws_messages_total` on signalling. Scrape them directly or
+  with the ServiceMonitor of your choice; restrict `/metrics` to cluster
+  networks in production.
+- **Logs:** both Go services emit structured JSON to stdout (no log files);
+  compose rotates container logs (10 MB × 3). Coturn and nginx log to stdout
+  by default.
+- **SBOMs:** every release attaches `sbom-*.spdx.json` per image, and pushed
+  images carry SLSA provenance + SBOM attestations in ghcr.io.
 
-for service in "${services[@]}"; do
-    if ! curl -f "http://$service/health" > /dev/null 2>&1; then
-        echo "ALERT: $service is unhealthy"
-        # Send alert (Slack, email, etc.)
-    fi
-done
-```
+## Security Checklist
 
-## 🎯 Performance Tuning
+- [ ] Unique `JWT_SECRET`, `TURN_PASSWORD`, and MongoDB credentials in `.env`
+- [ ] `WS_ALLOWED_ORIGINS` set to the exact https origin
+- [ ] TLS enabled with HSTS (except localhost-only demos)
+- [ ] Host firewall: 80/443 public; 3478 + relay range public; 27017/8080/8081
+      loopback-only (or behind the LB)
+- [ ] Images pinned (no `:latest`); `trivy`/`codeql` gates green in CI
 
-### Database Optimization
+### Secret Management
 
-```javascript
-// MongoDB indexes
-db.sessions.createIndex({ "host": 1, "createdAt": 1 })
-db.users.createIndex({ "username": 1 }, { unique: true })
-db.users.createIndex({ "email": 1 }, { unique: true })
-```
+- **Compose:** secrets live in `.env` (`scripts/setup-env.sh` creates it with
+  mode 600 and random `JWT_SECRET`/`TURN_PASSWORD`). Never commit `.env`;
+  back it up separately — losing `JWT_SECRET` invalidates all sessions.
+- **Helm:** pass secrets via `--set secrets.*` (dev) or, for production, set
+  `secrets.existingSecret` to a pre-created Secret (via
+  [Sealed Secrets](https://github.com/bitnami-labs/sealed-secrets) /
+  [external-secrets](https://external-secrets.io/)) holding `jwt-secret`,
+  `mongo-username`, `mongo-password`, `turn-username`, `turn-password`. Note
+  `secrets.turnPassword` is ALSO required in values: it is served to browsers
+  in `turn-config.json`, so it is client-visible by design — keep both copies
+  in sync.
+- **Rotation:** `JWT_SECRET` rotation logs every user out (1h token TTL);
+  `TURN_PASSWORD` rotation needs coturn restart plus client `turn-config.json`
+  refresh. MongoDB passwords rotate via standard `changeUserPassword` + restart.
 
-### Go Service Optimization
+### Vulnerability Policy
 
-```go
-// Connection pooling
-func init() {
-    // Set MongoDB connection pool settings
-    clientOptions := options.Client().ApplyURI(mongoURI).
-        SetMaxPoolSize(50).
-        SetMinPoolSize(5).
-        SetMaxConnIdleTime(30 * time.Second)
-}
-```
-
-### NGINX Optimization
-
-```nginx
-# Performance optimizations
-worker_processes auto;
-worker_connections 2048;
-
-# Enable gzip compression
-gzip on;
-gzip_types text/plain text/css application/json application/javascript;
-
-# Enable HTTP/2
-listen 443 ssl http2;
-```
-
-## 📞 Support & Maintenance
-
-### Log Management
-
-```yaml
-# ELK Stack for log aggregation
-elasticsearch:
-  image: elasticsearch:7.17.0
-  environment:
-    - discovery.type=single-node
-
-logstash:
-  image: logstash:7.17.0
-  volumes:
-    - ./logstash.conf:/usr/share/logstash/pipeline/logstash.conf
-
-kibana:
-  image: kibana:7.17.0
-  ports:
-    - "5601:5601"
-```
-
-### Update Strategy
-
-```bash
-#!/bin/bash
-# Zero-downtime deployment script
-
-# Build new images
-docker build -t signalling-server:new ./server/signalling-server
-docker build -t users-service:new ./server/users-service
-
-# Rolling update
-kubectl set image deployment/signalling-server signalling-server=signalling-server:new -n videoconf
-kubectl rollout status deployment/signalling-server -n videoconf
-
-kubectl set image deployment/users-service users-service=users-service:new -n videoconf
-kubectl rollout status deployment/users-service -n videoconf
-```
-
----
-
-## 📈 Cost Optimization
-
-### Resource Planning
-
-| Component | Small Scale | Medium Scale | Large Scale |
-|-----------|-------------|--------------|-------------|
-| CPU Cores | 4 | 16 | 64+ |
-| Memory | 8GB | 32GB | 128GB+ |
-| Storage | 100GB | 500GB | 2TB+ |
-| Bandwidth | 100Mbps | 1Gbps | 10Gbps+ |
-| Monthly Cost | ~$200 | ~$800 | ~$3000+ |
-
-### Cloud Provider Recommendations
-
-1. **AWS**: Use EKS for Kubernetes, RDS for MongoDB, ElastiCache for Redis
-2. **GCP**: Use GKE for Kubernetes, Cloud MongoDB Atlas, Memorystore for Redis
-3. **Azure**: Use AKS for Kubernetes, Cosmos DB for MongoDB, Azure Cache for Redis
-
----
-
-Built with ❤️ by the VideoConf Team
+- CI fails on any CRITICAL/HIGH finding (`trivy fs`, vuln+secret scanners)
+  and runs CodeQL (Go + JavaScript) on every push.
+- Runtime/shipped dependencies must be clean — no exceptions.
+- `.trivyignore` holds per-CVE exceptions **only** for build-toolchain
+  transitives that provably never ship (react-scripts dev chain), each with a
+  justification comment. Entries are CVE IDs, so future advisories in the same
+  packages still alert. Revisit on every toolchain upgrade.

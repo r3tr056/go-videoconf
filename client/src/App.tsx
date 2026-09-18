@@ -1,19 +1,39 @@
 import React, { useState, useEffect, useRef } from 'react';
-import './videoconf-sdk';
-
-declare global {
-  interface Window {
-    VideoconfSDK: any;
-  }
-}
+import * as Dialog from '@radix-ui/react-dialog';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import * as Separator from '@radix-ui/react-separator';
+import * as Switch from '@radix-ui/react-switch';
+import * as Tooltip from '@radix-ui/react-tooltip';
+import * as VisuallyHidden from '@radix-ui/react-visually-hidden';
+import {
+  CheckIcon,
+  Cross2Icon,
+  DotsHorizontalIcon,
+  ExitIcon,
+  EyeClosedIcon,
+  EyeOpenIcon,
+  GitHubLogoIcon,
+  InfoCircledIcon,
+  Link2Icon,
+  PersonIcon,
+} from '@radix-ui/react-icons';
+import { VideoconfSDK } from '@videoconf/sdk';
+import { Badge, Button, Callout, CopyButton, Field, IconButton, Tip, copyText } from './components/ui';
+import {
+  LogoMark,
+  MicOffIcon,
+  MicOnIcon,
+  PhoneDownIcon,
+  VideoOffIcon,
+  VideoOnIcon,
+} from './components/icons';
 
 interface VideoStreamProps {
   stream: MediaStream | null;
   muted?: boolean;
-  className?: string;
 }
 
-const VideoStream: React.FC<VideoStreamProps> = ({ stream, muted = false, className = '' }) => {
+const VideoStream: React.FC<VideoStreamProps> = ({ stream, muted = false }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -22,548 +42,560 @@ const VideoStream: React.FC<VideoStreamProps> = ({ stream, muted = false, classN
     }
   }, [stream]);
 
-  return (
-    <video
-      ref={videoRef}
-      autoPlay
-      playsInline
-      muted={muted}
-      className={`video-stream ${className}`}
-      style={{
-        width: '100%',
-        height: '100%',
-        objectFit: 'cover',
-        backgroundColor: '#000',
-        borderRadius: '8px'
-      }}
-    />
-  );
+  return <video ref={videoRef} autoPlay playsInline muted={muted} />;
 };
 
+type BusyState = 'idle' | 'creating' | 'joining';
+
 const App: React.FC = () => {
-  const [sdk, setSdk] = useState<any>(null);
+  const [sdk, setSdk] = useState<VideoconfSDK | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map());
-  const [sessionUrl, setSessionUrl] = useState('');
-  const [sessionPassword, setSessionPassword] = useState('');
-  const [sessionTitle, setSessionTitle] = useState('');
-  const [isConnected, setIsConnected] = useState(false);
+  const [createTitle, setCreateTitle] = useState('');
+  const [createPassword, setCreatePassword] = useState('');
+  const [joinCode, setJoinCode] = useState('');
+  const [joinPassword, setJoinPassword] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
+  const [meetingTitle, setMeetingTitle] = useState('');
+  const [inCall, setInCall] = useState(false);
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
-  const [currentView, setCurrentView] = useState<'home' | 'create' | 'join' | 'call'>('home');
-  const [error, setError] = useState<string>('');
+  const [cameraOn, setCameraOn] = useState(true);
+  const [micOn, setMicOn] = useState(true);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [showCreatePassword, setShowCreatePassword] = useState(false);
+  const [showJoinPassword, setShowJoinPassword] = useState(false);
+  const [busy, setBusy] = useState<BusyState>('idle');
+  const [menuCopied, setMenuCopied] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    const videoconfSDK = new window.VideoconfSDK('demo-api-key', 'demo-project');
-    
-    videoconfSDK.on('local-stream', (stream: MediaStream) => {
-      setLocalStream(stream);
-    });
+    let cancelled = false;
 
-    videoconfSDK.on('remote-stream', (stream: MediaStream, peerId: string) => {
-      setRemoteStreams(prev => {
-        const newStreams = new Map(prev);
-        newStreams.set(peerId, stream);
-        return newStreams;
+    const init = async () => {
+      const iceServers: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }];
+      let forceRelay = false;
+      try {
+        // Runtime configuration (baked at image build or mounted per
+        // deployment) so prebuilt images work without rebuilding.
+        const res = await fetch('/turn-config.json', { cache: 'no-store' });
+        if (res.ok) {
+          const turn = await res.json();
+          if (turn?.url) {
+            iceServers.push({ urls: turn.url, username: turn.username, credential: turn.credential });
+          }
+          forceRelay = turn?.forceRelay === true;
+        }
+      } catch {
+        // STUN-only fallback when no TURN config is served.
+      }
+      if (cancelled) return;
+      const videoconfSDK = new VideoconfSDK('demo-api-key', 'demo-project', {
+        iceServers,
+        ...(forceRelay ? { iceTransportPolicy: 'relay' as RTCIceTransportPolicy } : {}),
       });
-    });
 
-    videoconfSDK.on('stream-removed', (peerId: string) => {
-      setRemoteStreams(prev => {
-        const newStreams = new Map(prev);
-        newStreams.delete(peerId);
-        return newStreams;
+      videoconfSDK.on('local-stream', (stream: MediaStream) => {
+        setLocalStream(stream);
       });
-    });
 
-    setSdk(videoconfSDK);
+      videoconfSDK.on('remote-stream', (stream: MediaStream, peerId: string) => {
+        setRemoteStreams((prev) => {
+          const next = new Map(prev);
+          next.set(peerId, stream);
+          return next;
+        });
+      });
+
+      videoconfSDK.on('stream-removed', (peerId: string) => {
+        setRemoteStreams((prev) => {
+          const next = new Map(prev);
+          next.delete(peerId);
+          return next;
+        });
+      });
+
+      setSdk(videoconfSDK);
+    };
+
+    init();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const createSession = async () => {
-    try {
-      setError('');
-      const socketUrl = await sdk.createSession(sessionTitle, sessionPassword);
-      setSessionUrl(socketUrl);
-      await startCall();
-      setIsConnected(true);
-      setCurrentView('call');
-    } catch (error) {
-      setError(`Failed to create session: ${error}`);
-    }
-  };
-
-  const joinSession = async () => {
-    try {
-      setError('');
-      await sdk.joinSession(sessionUrl, sessionPassword);
-      await startCall();
-      setIsConnected(true);
-      setCurrentView('call');
-    } catch (error) {
-      setError(`Failed to join session: ${error}`);
-    }
-  };
+  const participantCount = remoteStreams.size + (localStream ? 1 : 0);
 
   const startCall = async () => {
+    if (!sdk) return;
+    await sdk.initializeCall();
+    // Apply the join options picked on the home screen.
+    if (!cameraOn) sdk.toggleVideo(false);
+    if (!micOn) sdk.toggleAudio(false);
+    setIsVideoEnabled(cameraOn);
+    setIsAudioEnabled(micOn);
+  };
+
+  const createSession = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!sdk || busy !== 'idle') return;
     try {
-      await sdk.initializeCall();
-    } catch (error) {
-      setError(`Failed to initialize call: ${error}`);
+      setError('');
+      setBusy('creating');
+      const socketUrl = await sdk.createSession(createTitle, createPassword);
+      setInviteCode(socketUrl);
+      setMeetingTitle(createTitle);
+      // Creating only reserves the room; the host must join it like any
+      // other peer, otherwise nobody can signal with them.
+      await sdk.joinSession(socketUrl, createPassword);
+      await startCall();
+      setCreateOpen(false);
+      setInCall(true);
+    } catch (err) {
+      setError(`Could not create the meeting: ${err}`);
+    } finally {
+      setBusy('idle');
+    }
+  };
+
+  const joinSession = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!sdk || busy !== 'idle') return;
+    try {
+      setError('');
+      setBusy('joining');
+      await sdk.joinSession(joinCode.trim(), joinPassword);
+      setInviteCode(joinCode.trim());
+      setMeetingTitle('');
+      await startCall();
+      setInCall(true);
+    } catch (err) {
+      setError(`Could not join the meeting: ${err}`);
+    } finally {
+      setBusy('idle');
     }
   };
 
   const leaveCall = async () => {
+    if (!sdk) return;
     try {
       await sdk.leaveCall();
-      setIsConnected(false);
+    } catch (err) {
+      setError(`Could not leave cleanly: ${err}`);
+    } finally {
+      setInCall(false);
       setLocalStream(null);
       setRemoteStreams(new Map());
-      setCurrentView('home');
-      setSessionUrl('');
-      setSessionPassword('');
-      setSessionTitle('');
-    } catch (error) {
-      setError(`Failed to leave call: ${error}`);
+      setInviteCode('');
+      setMeetingTitle('');
+      setJoinCode('');
+      setJoinPassword('');
+      setCreateTitle('');
+      setCreatePassword('');
+      setIsVideoEnabled(true);
+      setIsAudioEnabled(true);
     }
   };
 
   const toggleVideo = () => {
-    const newState = !isVideoEnabled;
-    sdk.toggleVideo(newState);
-    setIsVideoEnabled(newState);
+    if (!sdk) return;
+    const next = !isVideoEnabled;
+    sdk.toggleVideo(next);
+    setIsVideoEnabled(next);
   };
 
   const toggleAudio = () => {
-    const newState = !isAudioEnabled;
-    sdk.toggleAudio(newState);
-    setIsAudioEnabled(newState);
+    if (!sdk) return;
+    const next = !isAudioEnabled;
+    sdk.toggleAudio(next);
+    setIsAudioEnabled(next);
   };
 
+  const copyInviteFromMenu = async () => {
+    if (!inviteCode) return;
+    if (await copyText(inviteCode)) {
+      setMenuCopied(true);
+      setTimeout(() => setMenuCopied(false), 1600);
+    }
+  };
+
+  const statusText = !sdk
+    ? 'Loading'
+    : inCall
+      ? `In call, ${participantCount} participant${participantCount === 1 ? '' : 's'}`
+      : 'Ready';
+
+  const renderHeader = () => (
+    <header className="vc-header">
+      <div className="vc-brand">
+        <span className="vc-brand-mark">
+          <LogoMark />
+        </span>
+        VideoConf
+      </div>
+      <div className="vc-header-actions">
+        <Badge live={inCall}>{statusText}</Badge>
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger asChild>
+            <IconButton label="Meeting options" bordered>
+              <DotsHorizontalIcon width={16} height={16} />
+            </IconButton>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content className="vc-menu" sideOffset={6} align="end">
+              <DropdownMenu.Label className="vc-menu-label">Meeting</DropdownMenu.Label>
+              <DropdownMenu.Item
+                className="vc-menu-item"
+                disabled={!inviteCode}
+                onSelect={() => void copyInviteFromMenu()}
+              >
+                {menuCopied ? <CheckIcon /> : <Link2Icon />}
+                {menuCopied ? 'Code copied' : 'Copy meeting code'}
+              </DropdownMenu.Item>
+              {inCall && (
+                <DropdownMenu.Item className="vc-menu-item" onSelect={() => void leaveCall()}>
+                  <ExitIcon />
+                  Leave call
+                </DropdownMenu.Item>
+              )}
+              <Separator.Root className="vc-menu-separator" />
+              <DropdownMenu.Item className="vc-menu-item" asChild>
+                <a
+                  href="https://github.com/r3tr056/go-videoconf"
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ textDecoration: 'none', color: 'inherit' }}
+                >
+                  <GitHubLogoIcon />
+                  Star on GitHub
+                </a>
+              </DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+      </div>
+    </header>
+  );
+
+  const renderJoinOptions = () => (
+    <div style={{ margin: '6px 0 16px' }}>
+      <div className="vc-switch-row">
+        <label className="vc-switch-label" htmlFor="opt-camera">
+          <VideoOnIcon size={16} />
+          Camera on when joining
+        </label>
+        <Switch.Root
+          id="opt-camera"
+          className="vc-switch"
+          checked={cameraOn}
+          onCheckedChange={setCameraOn}
+        >
+          <Switch.Thumb className="vc-switch-thumb" />
+        </Switch.Root>
+      </div>
+      <div className="vc-switch-row">
+        <label className="vc-switch-label" htmlFor="opt-mic">
+          <MicOnIcon size={16} />
+          Microphone on when joining
+        </label>
+        <Switch.Root id="opt-mic" className="vc-switch" checked={micOn} onCheckedChange={setMicOn}>
+          <Switch.Thumb className="vc-switch-thumb" />
+        </Switch.Root>
+      </div>
+    </div>
+  );
+
   const renderHome = () => (
-    <div className="home-view">
-      <div className="hero-section">
-        <h1>VideoConf</h1>
-        <p>Professional Video Conferencing Made Simple</p>
-      </div>
-      
-      <div className="action-buttons">
-        <button
-          className="btn btn-primary"
-          onClick={() => setCurrentView('create')}
-        >
-          Create Meeting
-        </button>
-        <button
-          className="btn btn-secondary"
-          onClick={() => setCurrentView('join')}
-        >
-          Join Meeting
-        </button>
-      </div>
-
-      {error && <div className="error-message">{error}</div>}
-    </div>
-  );
-
-  const renderCreateSession = () => (
-    <div className="form-view">
-      <h2>Create New Meeting</h2>
-      
-      <div className="form-group">
-        <label>Meeting Title</label>
-        <input
-          type="text"
-          value={sessionTitle}
-          onChange={(e) => setSessionTitle(e.target.value)}
-          placeholder="Enter meeting title"
-          className="form-input"
-        />
-      </div>
-      
-      <div className="form-group">
-        <label>Meeting Password</label>
-        <input
-          type="password"
-          value={sessionPassword}
-          onChange={(e) => setSessionPassword(e.target.value)}
-          placeholder="Enter password"
-          className="form-input"
-        />
-      </div>
-      
-      <div className="form-buttons">
-        <button
-          className="btn btn-primary"
-          onClick={createSession}
-          disabled={!sessionTitle || !sessionPassword}
-        >
-          Create Meeting
-        </button>
-        <button
-          className="btn btn-secondary"
-          onClick={() => setCurrentView('home')}
-        >
-          Cancel
-        </button>
-      </div>
-
-      {sessionUrl && (
-        <div className="session-info">
-          <h3>Meeting Created!</h3>
-          <p>Share this URL with participants:</p>
-          <div className="session-url">{sessionUrl}</div>
+    <main className="vc-main">
+      <div className="vc-home">
+        <div className="vc-home-copy">
+          <h1>
+            Video calls,
+            <br />
+            <span className="vc-accent-word">self-hosted.</span>
+          </h1>
+          <p className="vc-lede">
+            Peer-to-peer meetings on your own infrastructure. No accounts, no tracking, no per-seat
+            pricing — just share a code and talk.
+          </p>
+          <ul className="vc-points">
+            <li>
+              <CheckIcon width={16} height={16} aria-hidden="true" />
+              End-to-end encrypted media over WebRTC
+            </li>
+            <li>
+              <CheckIcon width={16} height={16} aria-hidden="true" />
+              One-command deploy with Docker or Helm
+            </li>
+            <li>
+              <CheckIcon width={16} height={16} aria-hidden="true" />
+              Free forever under the MIT license
+            </li>
+          </ul>
+          <p className="vc-home-foot">
+            <InfoCircledIcon
+              width={13}
+              height={13}
+              aria-hidden="true"
+              style={{ verticalAlign: '-2px', marginRight: 6 }}
+            />
+            Runs fully in your browser; the server only introduces peers.
+          </p>
         </div>
-      )}
 
-      {error && <div className="error-message">{error}</div>}
-    </div>
-  );
+        <div className="vc-panel">
+          <h2 className="vc-panel-title">Join a meeting</h2>
+          <p className="vc-panel-sub">Enter the code shared by the host.</p>
+          <form onSubmit={(e) => void joinSession(e)}>
+            <Field
+              label="Meeting code"
+              id="join-code"
+              mono
+              value={joinCode}
+              onChange={(e) => setJoinCode(e.target.value)}
+              placeholder="e.g. a3f9-…"
+              autoComplete="off"
+              spellCheck={false}
+            />
+            <Field
+              label="Password"
+              id="join-password"
+              type={showJoinPassword ? 'text' : 'password'}
+              value={joinPassword}
+              onChange={(e) => setJoinPassword(e.target.value)}
+              placeholder="Meeting password"
+              autoComplete="current-password"
+              trailing={
+                <IconButton
+                  label={showJoinPassword ? 'Hide password' : 'Show password'}
+                  onClick={() => setShowJoinPassword((v) => !v)}
+                >
+                  {showJoinPassword ? (
+                    <EyeClosedIcon width={16} height={16} />
+                  ) : (
+                    <EyeOpenIcon width={16} height={16} />
+                  )}
+                </IconButton>
+              }
+            />
+            {renderJoinOptions()}
+            <Button
+              type="submit"
+              block
+              variant="teal"
+              loading={busy === 'joining'}
+              disabled={!sdk || !joinCode.trim() || !joinPassword || busy !== 'idle'}
+            >
+              Join meeting
+            </Button>
+          </form>
 
-  const renderJoinSession = () => (
-    <div className="form-view">
-      <h2>Join Meeting</h2>
-      
-      <div className="form-group">
-        <label>Meeting URL</label>
-        <input
-          type="text"
-          value={sessionUrl}
-          onChange={(e) => setSessionUrl(e.target.value)}
-          placeholder="Enter meeting URL or ID"
-          className="form-input"
-        />
-      </div>
-      
-      <div className="form-group">
-        <label>Password</label>
-        <input
-          type="password"
-          value={sessionPassword}
-          onChange={(e) => setSessionPassword(e.target.value)}
-          placeholder="Enter meeting password"
-          className="form-input"
-        />
-      </div>
-      
-      <div className="form-buttons">
-        <button
-          className="btn btn-primary"
-          onClick={joinSession}
-          disabled={!sessionUrl || !sessionPassword}
-        >
-          Join Meeting
-        </button>
-        <button
-          className="btn btn-secondary"
-          onClick={() => setCurrentView('home')}
-        >
-          Cancel
-        </button>
-      </div>
+          <div className="vc-divider-row">or</div>
 
-      {error && <div className="error-message">{error}</div>}
-    </div>
+          <Dialog.Root open={createOpen} onOpenChange={setCreateOpen}>
+            <Dialog.Trigger asChild>
+              <Button variant="ghost" block data-testid="new-meeting-btn">
+                New meeting
+              </Button>
+            </Dialog.Trigger>
+            <Dialog.Portal>
+              <Dialog.Overlay className="vc-overlay" />
+              <Dialog.Content
+                className="vc-dialog"
+                aria-describedby="create-desc"
+                onOpenAutoFocus={(e) => e.preventDefault()}
+              >
+                <Dialog.Title className="vc-dialog-title">New meeting</Dialog.Title>
+                <Dialog.Description className="vc-dialog-desc" id="create-desc">
+                  Pick a title and password, then share the code with your guests.
+                </Dialog.Description>
+                <form onSubmit={(e) => void createSession(e)}>
+                  <Field
+                    label="Meeting title"
+                    id="create-title"
+                    value={createTitle}
+                    onChange={(e) => setCreateTitle(e.target.value)}
+                    placeholder="Weekly sync"
+                    autoComplete="off"
+                  />
+                  <Field
+                    label="Meeting password"
+                    id="create-password"
+                    type={showCreatePassword ? 'text' : 'password'}
+                    value={createPassword}
+                    onChange={(e) => setCreatePassword(e.target.value)}
+                    placeholder="Required to join"
+                    autoComplete="new-password"
+                    trailing={
+                      <IconButton
+                        label={showCreatePassword ? 'Hide password' : 'Show password'}
+                        onClick={() => setShowCreatePassword((v) => !v)}
+                      >
+                        {showCreatePassword ? (
+                          <EyeClosedIcon width={16} height={16} />
+                        ) : (
+                          <EyeOpenIcon width={16} height={16} />
+                        )}
+                      </IconButton>
+                    }
+                  />
+                  <div className="vc-dialog-actions">
+                    <Dialog.Close asChild>
+                      <Button type="button" variant="ghost">
+                        Cancel
+                      </Button>
+                    </Dialog.Close>
+                    <Button
+                      type="submit"
+                      loading={busy === 'creating'}
+                      disabled={!sdk || !createTitle.trim() || !createPassword || busy !== 'idle'}
+                    >
+                      Create meeting
+                    </Button>
+                  </div>
+                </form>
+                <Dialog.Close asChild>
+                  <IconButton label="Close" className="vc-dialog-close">
+                    <Cross2Icon width={16} height={16} />
+                  </IconButton>
+                </Dialog.Close>
+              </Dialog.Content>
+            </Dialog.Portal>
+          </Dialog.Root>
+
+          {error && !inCall && <Callout>{error}</Callout>}
+        </div>
+      </div>
+    </main>
   );
 
   const renderCall = () => {
-    const remoteStreamArray = Array.from(remoteStreams.entries());
-    const totalStreams = remoteStreamArray.length + (localStream ? 1 : 0);
-    
-    const getGridCols = () => {
-      if (totalStreams <= 1) return 1;
-      if (totalStreams <= 4) return 2;
-      return 3;
-    };
+    const remoteEntries = Array.from(remoteStreams.entries());
+    const totalTiles = remoteEntries.length + (localStream ? 1 : 0);
+    const cols = totalTiles <= 1 ? 1 : totalTiles <= 4 ? 2 : 3;
 
     return (
-      <div className="call-view">
-        <div 
-          className="video-grid"
-          style={{
-            display: 'grid',
-            gridTemplateColumns: `repeat(${getGridCols()}, 1fr)`,
-            gap: '10px',
-            height: '70vh',
-            padding: '20px'
-          }}
-        >
-          {localStream && (
-            <div className="video-container local">
-              <VideoStream stream={localStream} muted={true} />
-              <div className="video-label">You</div>
-            </div>
+      <div className="vc-call">
+        <div className="vc-call-top">
+          <Badge live>Live</Badge>
+          {meetingTitle && <span className="vc-call-title">{meetingTitle}</span>}
+          {inviteCode && (
+            <span className="vc-code-chip" title={inviteCode}>
+              {inviteCode.length > 18 ? `${inviteCode.slice(0, 18)}…` : inviteCode}
+              <CopyButton value={inviteCode} label="Copy meeting code" size={14} />
+            </span>
           )}
-          
-          {remoteStreamArray.map(([peerId, stream]) => (
-            <div key={peerId} className="video-container remote">
-              <VideoStream stream={stream} />
-              <div className="video-label">Participant {peerId.substring(0, 6)}</div>
-            </div>
-          ))}
-        </div>
-        
-        <div className="call-controls">
-          <button
-            className={`control-btn ${isVideoEnabled ? 'active' : 'inactive'}`}
-            onClick={toggleVideo}
-          >
-            {isVideoEnabled ? '📹' : '📹❌'}
-          </button>
-          
-          <button
-            className={`control-btn ${isAudioEnabled ? 'active' : 'inactive'}`}
-            onClick={toggleAudio}
-          >
-            {isAudioEnabled ? '🎤' : '🎤❌'}
-          </button>
-          
-          <button
-            className="control-btn leave-btn"
-            onClick={leaveCall}
-          >
-            📞❌
-          </button>
+          <span className="vc-call-top-spacer" />
+          <Badge>
+            <PersonIcon width={13} height={13} aria-hidden="true" />
+            {participantCount} in call
+          </Badge>
         </div>
 
-        {error && <div className="error-message">{error}</div>}
+        <div className="vc-grid" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
+          {localStream && (
+            <div className="vc-tile local">
+              <VideoStream stream={localStream} muted />
+              <span className="vc-tile-label">
+                You
+                {!isAudioEnabled && (
+                  <span className="muted">
+                    <MicOffIcon size={13} />
+                  </span>
+                )}
+              </span>
+            </div>
+          )}
+          {remoteEntries.map(([peerId, stream]) => (
+            <div key={peerId} className="vc-tile">
+              <VideoStream stream={stream} />
+              <span className="vc-tile-label">Guest {peerId.substring(0, 6)}</span>
+            </div>
+          ))}
+          {remoteEntries.length === 0 && (
+            <div className="vc-tile-empty">
+              <div>You are the only one here.</div>
+              <div>Share the meeting code so others can join.</div>
+              {inviteCode && (
+                <div className="vc-full-code-row">
+                  <span className="vc-full-code" data-testid="full-code">
+                    {inviteCode}
+                  </span>
+                  <CopyButton value={inviteCode} label="Copy meeting code" />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {error && (
+          <div className="vc-call-error">
+            <Callout>{error}</Callout>
+          </div>
+        )}
+
+        <div className="vc-dock-wrap">
+          <div className="vc-dock" role="toolbar" aria-label="Call controls">
+            <Tip content={isAudioEnabled ? 'Mute microphone' : 'Unmute microphone'}>
+              <button
+                type="button"
+                className={`vc-control${isAudioEnabled ? '' : ' off'}`}
+                onClick={toggleAudio}
+                aria-label={isAudioEnabled ? 'Mute microphone' : 'Unmute microphone'}
+                aria-pressed={!isAudioEnabled}
+              >
+                {isAudioEnabled ? <MicOnIcon size={20} /> : <MicOffIcon size={20} />}
+              </button>
+            </Tip>
+            <Tip content={isVideoEnabled ? 'Turn camera off' : 'Turn camera on'}>
+              <button
+                type="button"
+                className={`vc-control${isVideoEnabled ? '' : ' off'}`}
+                onClick={toggleVideo}
+                aria-label={isVideoEnabled ? 'Turn camera off' : 'Turn camera on'}
+                aria-pressed={!isVideoEnabled}
+              >
+                {isVideoEnabled ? <VideoOnIcon size={20} /> : <VideoOffIcon size={20} />}
+              </button>
+            </Tip>
+            <Tip content="Copy meeting code">
+              <button
+                type="button"
+                className="vc-control"
+                onClick={() => void copyInviteFromMenu()}
+                aria-label="Copy meeting code"
+                disabled={!inviteCode}
+              >
+                {menuCopied ? <CheckIcon width={19} height={19} /> : <Link2Icon width={19} height={19} />}
+              </button>
+            </Tip>
+            <Separator.Root orientation="vertical" decorative className="vc-dock-separator" />
+            <Tip content="Leave call">
+              <button
+                type="button"
+                className="vc-control leave"
+                onClick={() => void leaveCall()}
+                aria-label="Leave call"
+              >
+                <PhoneDownIcon size={20} />
+              </button>
+            </Tip>
+          </div>
+        </div>
       </div>
     );
   };
 
   return (
-    <div className="app">
-      <style jsx>{`
-        .app {
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-          min-height: 100vh;
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          color: white;
-        }
-
-        .home-view, .form-view {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          min-height: 100vh;
-          padding: 20px;
-        }
-
-        .hero-section {
-          text-align: center;
-          margin-bottom: 40px;
-        }
-
-        .hero-section h1 {
-          font-size: 3rem;
-          margin-bottom: 10px;
-          font-weight: 700;
-        }
-
-        .hero-section p {
-          font-size: 1.2rem;
-          opacity: 0.9;
-        }
-
-        .action-buttons {
-          display: flex;
-          gap: 20px;
-          margin-bottom: 20px;
-        }
-
-        .btn {
-          padding: 12px 24px;
-          font-size: 1rem;
-          font-weight: 600;
-          border: none;
-          border-radius: 8px;
-          cursor: pointer;
-          transition: all 0.3s ease;
-          min-width: 150px;
-        }
-
-        .btn-primary {
-          background: #007bff;
-          color: white;
-        }
-
-        .btn-primary:hover {
-          background: #0056b3;
-          transform: translateY(-2px);
-        }
-
-        .btn-secondary {
-          background: rgba(255, 255, 255, 0.2);
-          color: white;
-          border: 1px solid rgba(255, 255, 255, 0.3);
-        }
-
-        .btn-secondary:hover {
-          background: rgba(255, 255, 255, 0.3);
-        }
-
-        .btn:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-
-        .form-view {
-          max-width: 400px;
-          width: 100%;
-        }
-
-        .form-view h2 {
-          text-align: center;
-          margin-bottom: 30px;
-          font-size: 2rem;
-        }
-
-        .form-group {
-          margin-bottom: 20px;
-        }
-
-        .form-group label {
-          display: block;
-          margin-bottom: 8px;
-          font-weight: 600;
-        }
-
-        .form-input {
-          width: 100%;
-          padding: 12px;
-          font-size: 1rem;
-          border: none;
-          border-radius: 8px;
-          background: rgba(255, 255, 255, 0.9);
-          color: #333;
-        }
-
-        .form-input::placeholder {
-          color: #666;
-        }
-
-        .form-buttons {
-          display: flex;
-          gap: 10px;
-          margin-top: 30px;
-        }
-
-        .session-info {
-          margin-top: 20px;
-          padding: 20px;
-          background: rgba(255, 255, 255, 0.1);
-          border-radius: 8px;
-          text-align: center;
-        }
-
-        .session-url {
-          font-family: monospace;
-          background: rgba(0, 0, 0, 0.3);
-          padding: 10px;
-          border-radius: 4px;
-          word-break: break-all;
-          margin-top: 10px;
-        }
-
-        .call-view {
-          height: 100vh;
-          display: flex;
-          flex-direction: column;
-        }
-
-        .video-container {
-          position: relative;
-          background: #000;
-          border-radius: 8px;
-          overflow: hidden;
-        }
-
-        .video-container.local {
-          border: 2px solid #007bff;
-        }
-
-        .video-label {
-          position: absolute;
-          bottom: 10px;
-          left: 10px;
-          background: rgba(0, 0, 0, 0.7);
-          color: white;
-          padding: 4px 8px;
-          border-radius: 4px;
-          font-size: 0.8rem;
-        }
-
-        .call-controls {
-          display: flex;
-          justify-content: center;
-          gap: 20px;
-          padding: 20px;
-          background: rgba(0, 0, 0, 0.3);
-        }
-
-        .control-btn {
-          width: 60px;
-          height: 60px;
-          border: none;
-          border-radius: 50%;
-          font-size: 1.5rem;
-          cursor: pointer;
-          transition: all 0.3s ease;
-        }
-
-        .control-btn.active {
-          background: #28a745;
-          color: white;
-        }
-
-        .control-btn.inactive {
-          background: #dc3545;
-          color: white;
-        }
-
-        .control-btn.leave-btn {
-          background: #dc3545;
-          color: white;
-        }
-
-        .control-btn:hover {
-          transform: scale(1.1);
-        }
-
-        .error-message {
-          background: rgba(220, 53, 69, 0.9);
-          color: white;
-          padding: 12px;
-          border-radius: 8px;
-          margin-top: 20px;
-          text-align: center;
-        }
-
-        @media (max-width: 768px) {
-          .hero-section h1 {
-            font-size: 2rem;
-          }
-          
-          .action-buttons {
-            flex-direction: column;
-            align-items: center;
-          }
-          
-          .form-buttons {
-            flex-direction: column;
-          }
-          
-          .video-grid {
-            grid-template-columns: 1fr !important;
-          }
-        }
-      `}</style>
-
-      {currentView === 'home' && renderHome()}
-      {currentView === 'create' && renderCreateSession()}
-      {currentView === 'join' && renderJoinSession()}
-      {currentView === 'call' && renderCall()}
-    </div>
+    <Tooltip.Provider delayDuration={250}>
+      <div className={`vc-app${inCall ? ' in-call' : ''}`}>
+        <VisuallyHidden.Root>
+          <div role="status">{statusText}</div>
+        </VisuallyHidden.Root>
+        {renderHeader()}
+        {inCall ? renderCall() : renderHome()}
+      </div>
+    </Tooltip.Provider>
   );
 };
 

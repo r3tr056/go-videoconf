@@ -1,7 +1,7 @@
 package controllers
 
 import (
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
 
@@ -29,6 +29,7 @@ func ConnectSession(ctx *gin.Context) {
 
 	if result.Err() != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Socket connection not found."})
+		return
 	}
 
 	var socket interfaces.Socket
@@ -62,11 +63,16 @@ func ConnectSession(ctx *gin.Context) {
 }
 
 func GetSession(ctx *gin.Context) {
+	urls, ok := ctx.Request.URL.Query()["url"]
+	if !ok || len(urls) == 0 || urls[0] == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Missing url query parameter."})
+		return
+	}
+
 	db := ctx.MustGet("db").(*mongo.Client)
 	collection := db.Database("vidchat").Collection("sockets")
 
-	id := ctx.Request.URL.Query()["url"][0]
-	result := collection.FindOne(ctx, bson.M{"hashedUrl": id})
+	result := collection.FindOne(ctx, bson.M{"hashedUrl": urls[0]})
 
 	if result.Err() != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Socket connection not found."})
@@ -76,7 +82,7 @@ func GetSession(ctx *gin.Context) {
 	ctx.Status(http.StatusOK)
 }
 
-func CreateSocket(session interfaces.Session, ctx *gin.Context, id string) string {
+func CreateSocket(session interfaces.Session, ctx *gin.Context, id string) (string, error) {
 	db := ctx.MustGet("db").(*mongo.Client)
 	collection := db.Database("vidchat").Collection("sockets")
 
@@ -87,13 +93,14 @@ func CreateSocket(session interfaces.Session, ctx *gin.Context, id string) strin
 	socket.HashedURL = hashURL
 	socket.SocketURL = socketURL
 
-	collection.InsertOne(ctx, socket)
+	if _, err := collection.InsertOne(ctx, socket); err != nil {
+		return "", err
+	}
 
-	return hashURL
+	return hashURL, nil
 }
 
 func hashSession(str string) string {
-	hash := sha1.New()
-	hash.Write([]byte(str))
-	return hex.EncodeToString(hash.Sum(nil))
+	sum := sha256.Sum256([]byte(str))
+	return hex.EncodeToString(sum[:])
 }

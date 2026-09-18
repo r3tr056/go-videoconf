@@ -1,8 +1,8 @@
 package utils
 
 import (
-	"log"
 	"golang.org/x/crypto/bcrypt"
+	"log"
 )
 
 func HashPassword(password string) string {

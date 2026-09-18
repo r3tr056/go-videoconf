@@ -1,0 +1,16 @@
+videoconf {{ .Chart.AppVersion }} installed as release "{{ .Release.Name }}".
+
+{{- if .Values.ingress.enabled }}
+App URL:  http{{ if .Values.ingress.tls.enabled }}s{{ end }}://{{ .Values.ingress.host }}/
+{{- else }}
+Ingress is disabled. Reach the services via port-forward, e.g.:
+  kubectl port-forward svc/{{ include "videoconf.fullname" . }}-client 8080:80
+{{- end }}
+
+Signalling: single replica by design (rooms are in-memory fan-out).
+TURN: {{ if .Values.turn.enabled }}enabled ({{ .Values.turn.publicUrl }}). Ensure it is reachable from client networks{{ if not .Values.turn.externalIP }} — set turn.externalIP on WAN{{ end }}.{{ else }}disabled — set turn.enabled=true for NAT traversal.{{ end }}
+{{- if not .Values.signalling.wsAllowedOrigins }}
+
+WARNING: signalling.wsAllowedOrigins is empty (dev mode, all origins allowed).
+Set it to your https origin for production.
+{{- end }}

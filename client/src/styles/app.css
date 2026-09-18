@@ -1,0 +1,902 @@
+/**
+ * VideoConf graphite UI styles.
+ * Class vocabulary uses the `vc-` prefix; all color comes from tokens.css.
+ */
+
+/* ---------- App shell ---------- */
+
+.vc-app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(1200px 500px at 85% -10%, rgba(18, 165, 148, 0.07), transparent 60%),
+    var(--vc-bg);
+}
+
+.vc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 20px;
+  background: var(--vc-bg-subtle);
+  border-bottom: 1px solid var(--vc-border-subtle);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.vc-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 650;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+}
+
+.vc-brand-mark {
+  display: inline-flex;
+  color: var(--vc-accent-solid);
+}
+
+.vc-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.vc-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 40px 20px 32px;
+}
+
+/* ---------- Home ---------- */
+
+.vc-home {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 40px;
+  align-items: start;
+  margin: auto 0;
+  width: 100%;
+}
+
+.vc-home-copy h1 {
+  margin: 0 0 12px;
+  font-size: clamp(1.9rem, 4vw, 2.6rem);
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+}
+
+.vc-home-copy h1 .vc-accent-word {
+  color: var(--vc-accent-text);
+}
+
+.vc-lede {
+  margin: 0 0 20px;
+  color: var(--vc-text-dim);
+  font-size: 1.02rem;
+  max-width: 40ch;
+}
+
+.vc-points {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.vc-points li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--vc-text-dim);
+  font-size: 0.92rem;
+}
+
+.vc-points svg {
+  color: var(--vc-accent-text);
+  flex-shrink: 0;
+}
+
+.vc-home-foot {
+  margin-top: 28px;
+  color: var(--vc-text-faint);
+  font-size: 0.82rem;
+}
+
+/* ---------- Panel / card ---------- */
+
+.vc-panel {
+  background: var(--vc-panel);
+  border: 1px solid var(--vc-border-subtle);
+  border-radius: var(--vc-radius-lg);
+  padding: 24px;
+  box-shadow: var(--vc-shadow-md);
+}
+
+.vc-panel-title {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.vc-panel-sub {
+  margin: 0 0 18px;
+  color: var(--vc-text-dim);
+  font-size: 0.9rem;
+}
+
+/* ---------- Fields ---------- */
+
+.vc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.vc-field:last-child {
+  margin-bottom: 0;
+}
+
+.vc-label {
+  font-size: 0.86rem;
+  font-weight: 550;
+  color: var(--vc-text-dim);
+}
+
+.vc-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.vc-input {
+  width: 100%;
+  background: var(--vc-bg-subtle);
+  border: 1px solid var(--vc-border);
+  border-radius: var(--vc-radius-md);
+  padding: 9px 12px;
+  font-size: 0.95rem;
+}
+
+.vc-input::placeholder {
+  color: var(--vc-text-faint);
+}
+
+.vc-input:hover {
+  border-color: var(--vc-border-strong);
+}
+
+.vc-input:focus {
+  outline: none;
+  border-color: var(--vc-focus-ring);
+  box-shadow: 0 0 0 1px var(--vc-focus-ring);
+}
+
+.vc-input-mono {
+  font-family: var(--vc-mono);
+  font-size: 0.88rem;
+}
+
+.vc-input-wrap .vc-input.has-trailing {
+  padding-right: 40px;
+}
+
+.vc-input-trailing {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+/* ---------- Buttons ---------- */
+
+.vc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid transparent;
+  border-radius: var(--vc-radius-md);
+  padding: 9px 16px;
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease,
+    transform 60ms ease;
+  white-space: nowrap;
+  text-decoration: none;
+}
+
+.vc-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.vc-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.vc-btn-primary {
+  background: var(--vc-primary-bg);
+  color: var(--vc-primary-text);
+}
+
+.vc-btn-primary:hover:not(:disabled) {
+  background: var(--vc-primary-bg-hover);
+}
+
+.vc-btn-teal {
+  background: var(--vc-accent-solid);
+  color: #fff;
+}
+
+.vc-btn-teal:hover:not(:disabled) {
+  background: var(--vc-accent-hover);
+}
+
+.vc-btn-ghost {
+  background: transparent;
+  border-color: var(--vc-border);
+  color: var(--vc-text);
+}
+
+.vc-btn-ghost:hover:not(:disabled) {
+  background: var(--vc-panel-raised);
+  border-color: var(--vc-border-strong);
+}
+
+.vc-btn-danger {
+  background: var(--vc-danger-solid);
+  color: #fff;
+}
+
+.vc-btn-danger:hover:not(:disabled) {
+  background: var(--vc-danger-hover);
+}
+
+.vc-btn-lg {
+  padding: 11px 20px;
+  font-size: 0.98rem;
+  width: 100%;
+}
+
+.vc-btn-sm {
+  padding: 6px 12px;
+  font-size: 0.84rem;
+}
+
+.vc-btn-block {
+  width: 100%;
+}
+
+/* Icon buttons */
+
+.vc-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--vc-radius-md);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--vc-text-dim);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+  flex-shrink: 0;
+}
+
+.vc-icon-btn:hover:not(:disabled) {
+  background: var(--vc-panel-raised);
+  color: var(--vc-text);
+}
+
+.vc-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.vc-icon-btn.bordered {
+  border-color: var(--vc-border);
+  background: var(--vc-bg-subtle);
+}
+
+/* ---------- Divider ---------- */
+
+.vc-divider-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0;
+  color: var(--vc-text-faint);
+  font-size: 0.82rem;
+}
+
+.vc-divider-row::before,
+.vc-divider-row::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: var(--vc-border-subtle);
+}
+
+/* ---------- Switch row ---------- */
+
+.vc-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  font-size: 0.9rem;
+}
+
+.vc-switch-row + .vc-switch-row {
+  border-top: 1px solid var(--vc-border-subtle);
+}
+
+.vc-switch-label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--vc-text-dim);
+}
+
+.vc-switch-label svg {
+  color: var(--vc-text-faint);
+}
+
+.vc-switch {
+  width: 40px;
+  height: 22px;
+  background: var(--vc-border-strong);
+  border-radius: var(--vc-radius-pill);
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  position: relative;
+  transition: background-color 120ms ease;
+  flex-shrink: 0;
+}
+
+.vc-switch[data-state="checked"] {
+  background: var(--vc-accent-solid);
+}
+
+.vc-switch-thumb {
+  display: block;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  transform: translateX(3px);
+  transition: transform 120ms ease;
+}
+
+.vc-switch-thumb[data-state="checked"] {
+  transform: translateX(21px);
+}
+
+/* ---------- Callout ---------- */
+
+.vc-callout {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border-radius: var(--vc-radius-md);
+  padding: 11px 13px;
+  font-size: 0.88rem;
+  margin-top: 14px;
+}
+
+.vc-callout svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.vc-callout-error {
+  background: var(--vc-danger-soft);
+  color: var(--vc-danger-text);
+  border: 1px solid var(--vc-danger-solid);
+}
+
+.vc-callout-info {
+  background: var(--vc-accent-soft);
+  color: var(--vc-accent-text);
+  border: 1px solid var(--vc-border);
+}
+
+/* ---------- Badges ---------- */
+
+.vc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.8rem;
+  font-weight: 550;
+  padding: 4px 11px;
+  border-radius: var(--vc-radius-pill);
+  border: 1px solid var(--vc-border);
+  background: var(--vc-bg-subtle);
+  color: var(--vc-text-dim);
+  white-space: nowrap;
+}
+
+.vc-badge .vc-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--vc-text-faint);
+}
+
+.vc-badge-live {
+  color: var(--vc-live-text);
+  border-color: var(--vc-live);
+  background: var(--vc-live-soft);
+}
+
+.vc-badge-live .vc-dot {
+  background: var(--vc-live);
+  animation: vc-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes vc-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(46, 168, 109, 0.5);
+  }
+  50% {
+    opacity: 0.75;
+    box-shadow: 0 0 0 4px rgba(46, 168, 109, 0);
+  }
+}
+
+/* ---------- Spinner ---------- */
+
+.vc-spinner {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: currentColor;
+  animation: vc-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+.vc-btn-primary .vc-spinner {
+  border-color: rgba(0, 0, 0, 0.25);
+  border-top-color: var(--vc-primary-text);
+}
+
+@keyframes vc-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---------- Dialog ---------- */
+
+.vc-overlay {
+  background: rgba(0, 0, 0, 0.62);
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+.vc-overlay[data-state="open"] {
+  animation: vc-fade-in 140ms ease;
+}
+
+.vc-dialog {
+  background: var(--vc-panel-solid);
+  border: 1px solid var(--vc-border);
+  border-radius: var(--vc-radius-lg);
+  box-shadow: var(--vc-shadow-lg);
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: calc(100vw - 32px);
+  max-width: 440px;
+  max-height: 88vh;
+  overflow-y: auto;
+  padding: 24px;
+  z-index: 41;
+}
+
+.vc-dialog[data-state="open"] {
+  animation: vc-dialog-in 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.vc-dialog-title {
+  margin: 0 0 4px;
+  font-size: 1.1rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.vc-dialog-desc {
+  margin: 0 0 18px;
+  color: var(--vc-text-dim);
+  font-size: 0.9rem;
+}
+
+.vc-dialog-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+.vc-dialog-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+}
+
+@keyframes vc-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes vc-dialog-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -48%) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+/* ---------- Dropdown menu ---------- */
+
+.vc-menu {
+  min-width: 210px;
+  background: var(--vc-panel-solid);
+  border: 1px solid var(--vc-border);
+  border-radius: var(--vc-radius-md);
+  box-shadow: var(--vc-shadow-md);
+  padding: 5px;
+  z-index: 50;
+}
+
+.vc-menu[data-state="open"] {
+  animation: vc-fade-in 120ms ease;
+}
+
+.vc-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.88rem;
+  padding: 8px 10px;
+  border-radius: var(--vc-radius-sm);
+  cursor: pointer;
+  color: var(--vc-text);
+  user-select: none;
+}
+
+.vc-menu-item[data-highlighted] {
+  background: var(--vc-panel-raised);
+}
+
+.vc-menu-item[data-disabled] {
+  color: var(--vc-text-faint);
+  cursor: not-allowed;
+}
+
+.vc-menu-item svg {
+  color: var(--vc-text-faint);
+}
+
+.vc-menu-separator {
+  height: 1px;
+  background: var(--vc-border-subtle);
+  margin: 5px 8px;
+}
+
+.vc-menu-label {
+  font-size: 0.75rem;
+  color: var(--vc-text-faint);
+  padding: 6px 10px 3px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* ---------- Tooltip ---------- */
+
+.vc-tooltip {
+  background: var(--vc-primary-bg);
+  color: var(--vc-primary-text);
+  font-size: 0.8rem;
+  font-weight: 550;
+  padding: 5px 10px;
+  border-radius: var(--vc-radius-sm);
+  box-shadow: var(--vc-shadow-md);
+  z-index: 60;
+  animation: vc-fade-in 100ms ease;
+}
+
+.vc-tooltip-arrow {
+  fill: var(--vc-primary-bg);
+}
+
+/* ---------- Call view ---------- */
+
+.vc-app.in-call {
+  height: 100vh;
+  overflow: hidden;
+}
+
+.vc-call {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #0c0c0e;
+}
+
+.vc-call-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--vc-bg-subtle);
+  border-bottom: 1px solid var(--vc-border-subtle);
+  z-index: 10;
+}
+
+.vc-call-title {
+  font-weight: 600;
+  font-size: 0.92rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 32ch;
+}
+
+.vc-code-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--vc-mono);
+  font-size: 0.8rem;
+  background: var(--vc-panel);
+  border: 1px solid var(--vc-border);
+  border-radius: var(--vc-radius-sm);
+  padding: 3px 4px 3px 10px;
+  color: var(--vc-text-dim);
+}
+
+.vc-code-chip .vc-icon-btn {
+  width: 26px;
+  height: 26px;
+}
+
+.vc-call-top-spacer {
+  flex: 1;
+}
+
+.vc-grid {
+  flex: 1;
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  min-height: 0;
+  overflow-y: auto;
+  /* Rows share the free height equally; tiles carry no intrinsic height
+     (video is absolutely positioned), so without this they collapse. */
+  grid-auto-rows: minmax(160px, 1fr);
+  align-content: stretch;
+}
+
+.vc-tile {
+  position: relative;
+  background: #000;
+  border-radius: var(--vc-radius-lg);
+  overflow: hidden;
+  border: 1px solid var(--vc-border-subtle);
+  min-height: 180px;
+}
+
+.vc-tile.local {
+  border-color: var(--vc-border-strong);
+}
+
+.vc-tile video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.vc-tile-label {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(10, 10, 12, 0.72);
+  color: #f2f2f4;
+  padding: 4px 10px;
+  border-radius: var(--vc-radius-pill);
+  font-size: 0.78rem;
+  font-weight: 550;
+  max-width: calc(100% - 20px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vc-tile-label .muted {
+  color: var(--vc-danger-text);
+  display: inline-flex;
+}
+
+.vc-tile-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 180px;
+  border: 1px dashed var(--vc-border-strong);
+  border-radius: var(--vc-radius-lg);
+  color: var(--vc-text-dim);
+  font-size: 0.9rem;
+  padding: 24px;
+  text-align: center;
+}
+
+.vc-full-code-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--vc-bg-subtle);
+  border: 1px solid var(--vc-border);
+  border-radius: var(--vc-radius-md);
+  padding: 4px 4px 4px 12px;
+  max-width: 100%;
+}
+
+.vc-full-code {
+  font-family: var(--vc-mono);
+  font-size: 0.8rem;
+  color: var(--vc-text);
+  word-break: break-all;
+}
+
+.vc-dock-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 6px 16px 18px;
+}
+
+.vc-dock {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--vc-panel-solid);
+  border: 1px solid var(--vc-border);
+  border-radius: 20px;
+  padding: 10px 12px;
+  box-shadow: var(--vc-shadow-lg);
+}
+
+.vc-dock-separator {
+  width: 1px;
+  align-self: stretch;
+  background: var(--vc-border);
+  margin: 6px 4px;
+}
+
+.vc-control {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  border: 1px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: var(--vc-panel-raised);
+  color: var(--vc-text);
+  transition: background-color 120ms ease, transform 60ms ease;
+}
+
+.vc-control:hover:not(:disabled) {
+  background: var(--vc-border-strong);
+}
+
+.vc-control:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.vc-control.off {
+  background: var(--vc-danger-solid);
+  color: #fff;
+}
+
+.vc-control.off:hover:not(:disabled) {
+  background: var(--vc-danger-hover);
+}
+
+.vc-control.leave {
+  background: var(--vc-danger-solid);
+  color: #fff;
+  width: 62px;
+  border-radius: var(--vc-radius-pill);
+}
+
+.vc-control.leave:hover:not(:disabled) {
+  background: var(--vc-danger-hover);
+}
+
+.vc-control:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.vc-call-error {
+  padding: 0 16px 14px;
+  display: flex;
+  justify-content: center;
+}
+
+.vc-call-error .vc-callout {
+  margin-top: 0;
+  max-width: 560px;
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 760px) {
+  .vc-main {
+    padding: 28px 16px 24px;
+  }
+
+  .vc-home {
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
+
+  .vc-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .vc-call-title {
+    display: none;
+  }
+
+  .vc-dialog-actions {
+    flex-direction: column-reverse;
+  }
+
+  .vc-dialog-actions .vc-btn {
+    width: 100%;
+  }
+}

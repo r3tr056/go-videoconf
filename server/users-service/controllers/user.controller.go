@@ -1,13 +1,15 @@
 package controllers
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/r3tr056/go-videoconf/users-service/dao"
 	"github.com/r3tr056/go-videoconf/users-service/database"
 	"github.com/r3tr056/go-videoconf/users-service/utils"
-	"gopkg.in/mgo.v2/bson"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type User struct {
@@ -26,22 +28,12 @@ func (u *User) Authenticate(ctx *gin.Context) {
 		return
 	}
 
-	// Find user by name
-	users, err := u.userDao.GetAll()
-	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Database error"})
-		return
+	// Find user by name (indexed; no full-collection scan).
+	if u.userDao == nil {
+		u.userDao = &dao.User{}
 	}
-
-	var foundUser *database.UserModel
-	for _, user := range users {
-		if user.Name == credentials.Username && user.Password == credentials.Password {
-			foundUser = &user
-			break
-		}
-	}
-
-	if foundUser == nil {
+	foundUser, err := u.userDao.FindByName(credentials.Username)
+	if err != nil || foundUser.Password != credentials.Password {
 		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
 		return
 	}
@@ -81,7 +73,7 @@ func (u *User) GetUsers(ctx *gin.Context) {
 
 func (u *User) GetUser(ctx *gin.Context) {
 	id := ctx.Param("id")
-	
+
 	if u.userDao == nil {
 		u.userDao = &dao.User{}
 	}
@@ -109,16 +101,12 @@ func (u *User) CreateUser(ctx *gin.Context) {
 
 	// Create user in database
 	user := database.UserModel{
-		ID:       bson.NewObjectId(),
+		ID:       primitive.NewObjectID(),
 		Name:     newUser.Name,
 		Password: newUser.Password,
 	}
 
-	sessionCopy := database.Database.MgDBSession.Copy()
-	defer sessionCopy.Close()
-
-	collection := sessionCopy.DB(database.Database.DatabaseName).C("users")
-	err := collection.Insert(&user)
+	_, err := database.Database.Users().InsertOne(context.Background(), &user)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
 		return
@@ -132,7 +120,7 @@ func (u *User) CreateUser(ctx *gin.Context) {
 
 func (u *User) UpdateUser(ctx *gin.Context) {
 	id := ctx.Param("id")
-	
+
 	var updateUser database.AddUser
 	if err := ctx.ShouldBindJSON(&updateUser); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -153,12 +141,10 @@ func (u *User) UpdateUser(ctx *gin.Context) {
 		return
 	}
 
-	sessionCopy := database.Database.MgDBSession.Copy()
-	defer sessionCopy.Close()
-
-	collection := sessionCopy.DB(database.Database.DatabaseName).C("users")
-	err := collection.Update(
-		bson.M{"_id": bson.ObjectIdHex(id)},
+	objectID, _ := primitive.ObjectIDFromHex(id)
+	result, err := database.Database.Users().UpdateOne(
+		context.Background(),
+		bson.M{"_id": objectID},
 		bson.M{"$set": bson.M{
 			"name":     updateUser.Name,
 			"password": updateUser.Password,
@@ -169,13 +155,17 @@ func (u *User) UpdateUser(ctx *gin.Context) {
 		ctx.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
+	if result.MatchedCount == 0 {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
 
 	ctx.JSON(http.StatusOK, gin.H{"message": "User updated successfully"})
 }
 
 func (u *User) DeleteUser(ctx *gin.Context) {
 	id := ctx.Param("id")
-	
+
 	if u.userDao == nil {
 		u.userDao = &dao.User{}
 	}

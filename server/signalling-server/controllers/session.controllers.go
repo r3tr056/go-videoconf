@@ -23,9 +23,21 @@ func CreateSession(ctx *gin.Context) {
 
 	session.Password = utils.HashPassword(session.Password)
 
-	result, _ := collection.InsertOne(ctx, session)
-	insertedID := result.InsertedID.(primitive.ObjectID).Hex()
+	result, err := collection.InsertOne(ctx, session)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session."})
+		return
+	}
+	insertedID, ok := result.InsertedID.(primitive.ObjectID)
+	if !ok {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session."})
+		return
+	}
 
-	url := CreateSocket(session, ctx, insertedID)
+	url, err := CreateSocket(session, ctx, insertedID.Hex())
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create session."})
+		return
+	}
 	ctx.JSON(http.StatusOK, gin.H{"socket": url})
 }

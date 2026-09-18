@@ -1,34 +1,37 @@
-# Videoconf - Video Conferencing as a Service (AaaS) 🚀
+# Videoconf - Self-Hosted Open-Source Video Conferencing 🚀
 
-Videoconf is a robust, production-ready Video Conference API as a Service platform that provides seamless integration of video conferencing capabilities into JavaScript (React, Angular, etc.) and Node.js applications.
+Videoconf is a free, MIT-licensed video conferencing platform you can self-deploy
+on your own infrastructure or cloud. It provides a Go signalling backend, a
+browser WebRTC SDK, and a React demo client — with one-command Docker Compose
+and Helm/Kubernetes deployment.
 
 ## 🌟 Features
 
-- **Easy-to-use APIs and SDKs** for video conferencing integration
-- **Support for multiple JavaScript frameworks** (React, Angular, etc.)
-- **Node.js compatibility** with TypeScript SDK
-- **Scalable microservice architecture** with Go backend
-- **Real-time video and audio streaming** via WebRTC
-- **Secure session management** with JWT authentication
-- **Docker and Kubernetes ready** for production deployment
-- **Load balancing** with Nginx
-- **Health monitoring** and logging
-- **RESTful APIs** for session and user management
+- **Easy-to-use SDK and REST APIs** for video conferencing integration
+- **Framework-agnostic browser SDK** (React demo included; works with any web stack)
+- **Browser-native WebRTC** (no plugins) with mesh P2P for small rooms
+- **Simple two-service Go backend** (signalling + users) with MongoDB
+- **Password-protected sessions** and JWT-authenticated user management
+- **Docker Compose and Kubernetes/Helm** deployment with pinned images
+- **Bundled TURN server** for reliable NAT traversal
+- **TLS/WSS** production path with Nginx/ingress termination
+- **Health endpoints**, structured logs, and Prometheus metrics
 
 ## 🛠️ Tech Stack
 
 - **Backend**: Golang with Gin framework
 - **Database**: MongoDB
 - **Frontend**: React with TypeScript
-- **SDK**: TypeScript/JavaScript
-- **WebRTC**: Native browser WebRTC APIs
-- **Deployment**: Docker, Kubernetes
+- **SDK**: TypeScript (`@videoconf/sdk`)
+- **WebRTC**: Native browser WebRTC APIs (mesh P2P)
+- **NAT traversal**: STUN + bundled coturn TURN server
+- **Deployment**: Docker Compose, Kubernetes/Helm
 - **Load Balancer**: Nginx
-- **Authentication**: JWT tokens
+- **Authentication**: JWT tokens (users service), session passwords
 
 ## 🏗️ Architecture
 
-Videoconf consists of four main components:
+Videoconf consists of five main components:
 
 1. **Signalling Server** (Go): Handles WebRTC signalling and session management
 2. **Users Service** (Go): Manages user authentication and user data
@@ -55,12 +58,16 @@ Videoconf consists of four main components:
 └─────────────────┘
 ```
 
+Media flows peer-to-peer between browsers; the server relays signalling only.
+Mesh P2P suits small rooms (a few participants); a server-side SFU for larger
+rooms is on the v2 roadmap.
+
 ## 🚦 Getting Started
 
 ### Prerequisites
 
 - **Docker & Docker Compose** (recommended)
-- **Go 1.22+** (for local development)
+- **Go 1.23+** (for local development)
 - **Node.js 18+** (for local development)
 - **MongoDB** (for local development)
 
@@ -72,12 +79,17 @@ Videoconf consists of four main components:
    cd go-videoconf
    ```
 
-2. **Start the entire stack:**
+2. **Generate secrets:**
    ```bash
-   docker-compose up --build
+   ./scripts/setup-env.sh
    ```
 
-3. **Access the application:**
+3. **Start the entire stack:**
+   ```bash
+   docker compose up --build -d
+   ```
+
+4. **Access the application:**
    - Web Client: http://localhost
    - Signalling API: http://localhost:8080
    - Users API: http://localhost:8081
@@ -108,9 +120,10 @@ Videoconf consists of four main components:
 
 1. **Setup Kubernetes cluster**
 
-2. **Deploy to Kubernetes:**
+2. **Deploy with Helm:**
    ```bash
-   make deploy-k8s
+   make deploy-k8s JWT_SECRET=$(openssl rand -base64 48) TURN_PASSWORD=$(openssl rand -base64 32) \
+     INGRESS_HOST=meet.example.com TURN_PUBLIC_URL=turn:meet.example.com:3478
    ```
 
 3. **Check deployment status:**
@@ -119,21 +132,32 @@ Videoconf consists of four main components:
    kubectl get services
    ```
 
+See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for the full deployment guide.
+
 ## 📚 SDK Usage
 
 ### Installation
 
+The SDK publishes to GitHub Packages. Point the scope at the registry first:
+
 ```bash
-npm install videoconf-sdk
+# .npmrc
+@videoconf:registry=https://npm.pkg.github.com
+```
+
+```bash
+npm install @videoconf/sdk
 ```
 
 ### Basic Usage
 
 ```javascript
-import { VideoconfSDK, VideoContainer } from 'videoconf-sdk';
+import { VideoconfSDK } from '@videoconf/sdk';
 
 // Initialize SDK
-const videoconf = new VideoconfSDK('your-api-key', 'project-id');
+const videoconf = new VideoconfSDK('your-api-key', 'project-id', {
+  signallingServerUrl: 'wss://meet.example.com',
+});
 
 // Create a meeting
 const sessionUrl = await videoconf.createSession('My Meeting', 'password123');
@@ -145,8 +169,12 @@ await videoconf.joinSession(sessionUrl, 'password123');
 await videoconf.initializeCall();
 
 // Handle events
-videoconf.on('stream-added', (stream, peerId) => {
-  console.log('New participant joined:', peerId);
+videoconf.on('local-stream', (stream) => {
+  document.getElementById('local-video').srcObject = stream;
+});
+
+videoconf.on('remote-stream', (stream, peerId) => {
+  console.log('New participant stream:', peerId);
 });
 
 videoconf.on('stream-removed', (peerId) => {
@@ -165,7 +193,7 @@ await videoconf.leaveCall();
 
 ```jsx
 import React, { useEffect, useState } from 'react';
-import { VideoconfSDK, VideoGrid } from 'videoconf-sdk';
+import { VideoconfSDK } from '@videoconf/sdk';
 
 function VideoCall() {
   const [sdk, setSdk] = useState(null);
@@ -174,23 +202,39 @@ function VideoCall() {
 
   useEffect(() => {
     const videoconf = new VideoconfSDK('api-key', 'project-id');
-    
+
     videoconf.on('local-stream', setLocalStream);
     videoconf.on('remote-stream', (stream, peerId) => {
       setRemoteStreams(prev => new Map(prev).set(peerId, stream));
     });
+    videoconf.on('stream-removed', (peerId) => {
+      setRemoteStreams(prev => {
+        const next = new Map(prev);
+        next.delete(peerId);
+        return next;
+      });
+    });
 
     setSdk(videoconf);
+    return () => { videoconf.leaveCall(); };
   }, []);
 
   return (
-    <VideoGrid 
-      streams={remoteStreams}
-      localStream={localStream}
-    />
+    <div>
+      {localStream && (
+        <video ref={el => { if (el) el.srcObject = localStream; }}
+          autoPlay muted playsInline />
+      )}
+      {[...remoteStreams].map(([peerId, stream]) => (
+        <video key={peerId} ref={el => { if (el) el.srcObject = stream; }}
+          autoPlay playsInline />
+      ))}
+    </div>
   );
 }
 ```
+
+See [docs/SDK_DOCUMENTATION.md](docs/SDK_DOCUMENTATION.md) for the full SDK reference.
 
 ## 📖 API Documentation
 
@@ -203,7 +247,7 @@ Content-Type: application/json
 
 {
   "host": "user-id",
-  "title": "Meeting Title", 
+  "title": "Meeting Title",
   "password": "meeting-password"
 }
 ```
@@ -253,29 +297,31 @@ make check-health
 
 **View logs:**
 ```bash
-docker-compose logs -f
+docker compose logs -f
 ```
 
 **Access individual services:**
 ```bash
 # Signalling server logs
-docker-compose logs signalling-server
+docker compose logs signalling-server
 
-# Users service logs  
-docker-compose logs users-service
+# Users service logs
+docker compose logs users-service
 
 # Client logs
-docker-compose logs videoconf-client
+docker compose logs videoconf-client
 ```
 
 ## 🚀 Production Deployment
 
 ### Environment Variables
 
+See `.env.example` for the full documented list. Key variables:
+
 **Signalling Server:**
 - `PORT`: Server port (default: 8080)
-- `DB_URL`: MongoDB host
-- `DB_PORT`: MongoDB port  
+- `DB_HOST`: MongoDB host
+- `DB_PORT`: MongoDB port
 - `DB_USERNAME`: MongoDB username
 - `DB_PASSWORD`: MongoDB password
 
@@ -283,7 +329,7 @@ docker-compose logs videoconf-client
 - `PORT`: Server port (default: 8081)
 - `DB_HOST`: MongoDB host
 - `DB_NAME`: Database name
-- `JWT_SECRET`: JWT signing secret
+- `JWT_SECRET`: JWT signing secret (required, no default)
 
 ### Security Considerations
 
@@ -291,13 +337,12 @@ docker-compose logs videoconf-client
 - Session password hashing
 - CORS configuration
 - WebSocket origin validation
-- Environment-based secrets
+- Environment-based secrets (never commit real secrets)
 
 ### Scaling
 
-- Horizontal scaling via Kubernetes
-- Load balancing with Nginx
-- Stateless service design
+- Horizontally scalable services behind Nginx (one signalling instance per
+  deployment fans out its own WebSocket mesh; session state lives in MongoDB)
 - MongoDB replication for HA
 
 ## 🔧 Development Tools

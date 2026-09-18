@@ -1,0 +1,67 @@
+{{- if .Values.turn.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "videoconf.fullname" . }}-turn
+  labels:
+    {{- include "videoconf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: turn
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "videoconf.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: turn
+  template:
+    metadata:
+      labels:
+        {{- include "videoconf.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: turn
+    spec:
+      {{- if .Values.turn.hostNetwork }}
+      # TURN needs direct UDP reachability; host networking is the pragmatic v1 answer.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
+      containers:
+        - name: turn
+          image: "{{ .Values.turn.image }}:{{ .Values.turn.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --listening-port=3478
+            - --min-port={{ .Values.turn.minPort }}
+            - --max-port={{ .Values.turn.maxPort }}
+            - --realm={{ .Values.turn.realm }}
+            - --server-name=videoconf-turn
+            - --user=$(TURN_USER):$(TURN_PASSWORD)
+            - --log-file=stdout
+            - --no-cli
+            {{- if .Values.turn.externalIP }}
+            - --external-ip={{ .Values.turn.externalIP }}
+            {{- end }}
+          env:
+            - name: TURN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "videoconf.secretName" . }}
+                  key: turn-username
+            - name: TURN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "videoconf.secretName" . }}
+                  key: turn-password
+          ports:
+            - name: turn-tcp
+              containerPort: 3478
+              protocol: TCP
+            - name: turn-udp
+              containerPort: 3478
+              protocol: UDP
+          livenessProbe:
+            tcpSocket:
+              port: turn-tcp
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+{{- end }}

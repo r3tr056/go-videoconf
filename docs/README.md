@@ -1,116 +1,38 @@
-# VideoConf SDK Documentation
+# VideoConf Documentation
 
-## 🎯 Overview
+## SDK
 
-The VideoConf SDK is a comprehensive TypeScript library for building Google Meet level video conferencing applications. It provides enterprise-grade WebRTC functionality with advanced features like adaptive bitrate, noise suppression, virtual backgrounds, and real-time analytics.
-
-## 🚀 Quick Start
-
-### Installation
-
-```bash
-npm install @videoconf/sdk
-```
-
-### Basic Usage
+The [`@videoconf/sdk`](../sdk/) package is the browser TypeScript SDK for mesh
+P2P video conferencing over the go-videoconf signalling server.
 
 ```typescript
-import { VideoConf } from '@videoconf/sdk';
+import { VideoconfSDK } from '@videoconf/sdk';
 
-// Initialize the SDK
-const videoConf = new VideoConf({
-  signallingServer: 'wss://your-signalling-server.com',
-  stunServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-  autoJoinAudio: true,
-  autoJoinVideo: true
+const sdk = new VideoconfSDK('api-key', 'project-id', {
+  signallingServerUrl: 'wss://meet.example.com',
 });
 
-// Create a meeting
-const sessionUrl = await videoConf.createSession({
-  title: 'Team Standup',
-  password: 'secure123',
-  maxParticipants: 50
+sdk.on('remote-stream', (stream, peerId) => {
+  (document.getElementById(`video-${peerId}`) as HTMLVideoElement).srcObject = stream;
 });
 
-// Join a meeting
-await videoConf.joinSession(sessionUrl, 'secure123');
-
-// Handle events
-videoConf.on('participant-joined', (participant) => {
-  console.log(`${participant.username} joined the meeting`);
-});
-
-videoConf.on('media-received', (participantId, stream) => {
-  // Display remote video/audio
-  const videoElement = document.getElementById('remote-video');
-  videoElement.srcObject = stream;
-});
+const socket = await sdk.createSession('Team standup', 'secret');
+await sdk.joinSession(socket, 'secret');
+await sdk.initializeCall();
 ```
 
-## 📚 Core Features
+Full reference: [SDK documentation](./SDK_DOCUMENTATION.md).
 
-### Session Management
+## Server APIs
 
-#### Creating Sessions
-```typescript
-const sessionConfig = {
-  title: 'Product Demo',
-  password: 'demo123',
-  isPrivate: true,
-  maxParticipants: 100,
-  recording: true
-};
+REST + WebSocket reference: [API documentation](../API_DOCUMENTATION.md).
 
-const sessionUrl = await videoConf.createSession(sessionConfig);
-```
+## Deployment
 
-#### Joining Sessions
-```typescript
-// Join with password
-await videoConf.joinSession(sessionUrl, 'password123');
+Self-hosting guide (Compose, Kubernetes/Helm, TURN, TLS, Mongo ops):
+[deployment guide](./DEPLOYMENT.md).
 
-// Join as guest (if allowed)
-await videoConf.joinSession(sessionUrl);
-```
+## Release Plan
 
-#### Leaving Sessions
-```typescript
-await videoConf.leaveSession();
-```
-
-### Media Management
-
-#### Initialize Camera and Microphone
-```typescript
-const stream = await videoConf.initializeMedia({
-  video: {
-    width: { ideal: 1920 },
-    height: { ideal: 1080 },
-    frameRate: { ideal: 30 }
-  },
-  audio: {
-    echoCancellation: true,
-    noiseSuppression: true,
-    autoGainControl: true
-  }
-});
-
-// Display local video
-const localVideo = document.getElementById('local-video');
-localVideo.srcObject = stream;
-```
-
-#### Media Controls
-```typescript
-// Toggle audio
-const isAudioEnabled = videoConf.toggleAudio(); // Toggle current state
-videoConf.toggleAudio(false); // Mute
-videoConf.toggleAudio(true);  // Unmute
-
-// Toggle video
-const isVideoEnabled = videoConf.toggleVideo(); // Toggle current state
-videoConf.toggleVideo(false); // Turn off camera
-videoConf.toggleVideo(true);  // Turn on camera
-```
-
-For complete documentation, see the [full SDK documentation](./SDK_DOCUMENTATION.md).
+Production-readiness plan with decisions, phases, and verification gates:
+[implementation plan](./IMPLEMENTATION_PLAN.md).

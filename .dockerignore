@@ -1,0 +1,13 @@
+.git
+.gitmodules
+node_modules
+sdk/node_modules
+client/node_modules
+sdk/dist
+sdk/coverage
+sdk/docs
+client/build
+client/coverage
+coverage
+*.log
+.env

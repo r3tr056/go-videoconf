@@ -1,0 +1,66 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "videoconf.fullname" . }}
+  labels:
+    {{- include "videoconf.labels" . | nindent 4 }}
+  annotations:
+    # Long-lived WebSocket signalling needs generous proxy timeouts.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "86400"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "86400"
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /ws/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "videoconf.fullname" . }}-signalling
+                port:
+                  number: 8080
+          - path: /session
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "videoconf.fullname" . }}-signalling
+                port:
+                  number: 8080
+          - path: /connect
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "videoconf.fullname" . }}-signalling
+                port:
+                  number: 8080
+          - path: /health
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "videoconf.fullname" . }}-signalling
+                port:
+                  number: 8080
+          - path: /api/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "videoconf.fullname" . }}-users
+                port:
+                  number: 8081
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "videoconf.fullname" . }}-client
+                port:
+                  number: 80
+{{- end }}

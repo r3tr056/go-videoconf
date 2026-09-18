@@ -3,8 +3,9 @@ package common
 import "os"
 
 var (
-	Issuer            = getenv("JWT_ISSUER", "Ankur Debnath")
-	JwtSecretPassword = getenv("JWT_SECRET", "Ankur Debnath")
+	Issuer = getenv("JWT_ISSUER", "VideoConf")
+	// No default on purpose: main fails fast when JWT_SECRET is unset.
+	JwtSecretPassword = os.Getenv("JWT_SECRET")
 	MgDBName          = getenv("DB_NAME", "vidchat")
 	MgAddress         = getenv("DB_HOST", "127.0.0.1") + ":" + getenv("DB_PORT", "27017")
 	MgUsername        = getenv("DB_USERNAME", "root")

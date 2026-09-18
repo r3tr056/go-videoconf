@@ -1,17 +1,27 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
-  
+
   signalling-server:
     restart: always
+    logging: *default-logging
     build:
       context: ./server/signalling-server
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
     environment:
-      HOST_URL: http://localhost
-      DB_URL: mongodb
+      DB_HOST: mongodb
       DB_PORT: 27017
+      DB_USERNAME: root
+      DB_PASSWORD: rootpassword
       PORT: 8080
+      GIN_MODE: release
+      WS_ALLOWED_ORIGINS: ${WS_ALLOWED_ORIGINS:-}
     networks:
       - videoconf
     depends_on:
@@ -19,6 +29,7 @@ services:
 
   users-service:
     restart: always
+    logging: *default-logging
     build:
       context: ./server/users-service
       dockerfile: Dockerfile
@@ -31,7 +42,8 @@ services:
       DB_USERNAME: root
       DB_PASSWORD: rootpassword
       PORT: 8081
-      JWT_SECRET: your-secret-key
+      GIN_MODE: release
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env (see .env.example)}
       JWT_ISSUER: VideoConf
     networks:
       - videoconf
@@ -40,7 +52,8 @@ services:
 
   mongodb:
     restart: always
-    image: mongo:latest
+    logging: *default-logging
+    image: mongo:7.0
     environment:
       MONGO_INITDB_ROOT_USERNAME: root
       MONGO_INITDB_ROOT_PASSWORD: rootpassword
@@ -53,17 +66,47 @@ services:
 
   videoconf-client:
     container_name: videoconf-client
+    logging: *default-logging
     working_dir: /app
     build:
-      context: ./client
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./client/Dockerfile
+      args:
+        TURN_PUBLIC_URL: ${TURN_PUBLIC_URL:-turn:localhost:3478}
+        TURN_USER: ${TURN_USER:?Set TURN_USER in .env (see .env.example)}
+        TURN_PASSWORD: ${TURN_PASSWORD:?Set TURN_PASSWORD in .env (see .env.example)}
+        TURN_FORCE_RELAY: ${TURN_FORCE_RELAY:-false}
     ports:
       - "3000:80"
     networks:
       - videoconf
 
+  turn:
+    restart: always
+    logging: *default-logging
+    image: coturn/coturn:4.6.3
+    command:
+      - --listening-port=3478
+      - --min-port=49160
+      - --max-port=49200
+      - --realm=${TURN_REALM:-videoconf}
+      - --server-name=videoconf-turn
+      - --user=${TURN_USER:?Set TURN_USER in .env}:${TURN_PASSWORD:?Set TURN_PASSWORD in .env}
+      - --log-file=stdout
+      - --no-cli
+      # WAN deployments: coturn must advertise its public IP. Set
+      # TURN_EXTERNAL_IP in .env and uncomment the next line.
+      # - --external-ip=${TURN_EXTERNAL_IP}
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      - "49160-49200:49160-49200/udp"
+    networks:
+      - videoconf
+
   load-balancer:
-    image: nginx:latest
+    image: nginx:1.27-alpine
+    logging: *default-logging
     container_name: load-balancer
     ports:
       - "80:80"

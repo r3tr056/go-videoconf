@@ -154,3 +154,15 @@ go.work.sum
 
 # env file
 .env
+
+# Built Go binaries (make build outputs; never commit)
+/server/signalling-server/signalling-server
+/server/signalling-server/main
+/server/users-service/users-service
+/server/users-service/main
+
+# CRA production build output
+client/build/
+
+# Generated SDK API docs (typedoc regenerates via npm run docs)
+sdk/docs/

@@ -4,15 +4,15 @@ import (
 	"errors"
 	"time"
 
-	jwt_lib "github.com/dgrijalva/jwt-go"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/r3tr056/go-videoconf/users-service/common"
-	"gopkg.in/mgo.v2/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type StdClaims struct {
 	Name string `json:"name"`
 	Role string `json:"role"`
-	jwt_lib.StandardClaims
+	jwt.RegisteredClaims
 }
 
 type Utils struct {
@@ -20,22 +20,22 @@ type Utils struct {
 
 func (u *Utils) GenerateJWT(name string, role string) (string, error) {
 	claims := StdClaims{
-		name,
-		role,
-		jwt_lib.StandardClaims{
-			ExpiresAt: time.Now().Add(time.Hour * 1).Unix(),
+		Name: name,
+		Role: role,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour * 1)),
 			Issuer:    common.Issuer,
 		},
 	}
 
-	token := jwt_lib.NewWithClaims(jwt_lib.SigningMethodHS256, claims)
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString([]byte(common.JwtSecretPassword))
 
 	return tokenString, err
 }
 
 func (u *Utils) ValidateObjectId(id string) error {
-	if !bson.IsObjectIdHex(id) {
+	if _, err := primitive.ObjectIDFromHex(id); err != nil {
 		return errors.New("error object id not hex")
 	}
 	return nil

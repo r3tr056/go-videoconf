@@ -1,5 +1,5 @@
 # Build Container
-FROM golang:1.22-alpine AS build
+FROM golang:1.23-alpine AS build
 
 WORKDIR /app
 
@@ -10,7 +10,7 @@ COPY . .
 RUN go build -o main .
 
 # Deployment pod
-FROM alpine:latest
+FROM alpine:3.21
 RUN apk --no-cache add ca-certificates
 WORKDIR /root/
 

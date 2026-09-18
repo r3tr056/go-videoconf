@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "videoconf.fullname" . }}-mongo
+  labels:
+    {{- include "videoconf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mongo
+spec:
+  # Single instance. The replica-set runbook documents HA separately.
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "videoconf.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: mongo
+  template:
+    metadata:
+      labels:
+        {{- include "videoconf.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: mongo
+    spec:
+      containers:
+        - name: mongo
+          image: "{{ .Values.mongo.image }}:{{ .Values.mongo.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: mongo
+              containerPort: 27017
+          env:
+            - name: MONGO_INITDB_ROOT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "videoconf.secretName" . }}
+                  key: mongo-username
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "videoconf.secretName" . }}
+                  key: mongo-password
+          volumeMounts:
+            - name: mongo-data
+              mountPath: /data/db
+          livenessProbe:
+            tcpSocket:
+              port: mongo
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            tcpSocket:
+              port: mongo
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: mongo-data
+          persistentVolumeClaim:
+            claimName: {{ include "videoconf.fullname" . }}-mongo
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "videoconf.fullname" . }}-mongo
+  labels:
+    {{- include "videoconf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mongo
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- if .Values.mongo.storageClass }}
+  storageClassName: {{ .Values.mongo.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.mongo.storage | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "videoconf.fullname" . }}-mongo
+  labels:
+    {{- include "videoconf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mongo
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "videoconf.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: mongo
+  ports:
+    - port: 27017
+      targetPort: mongo
+      protocol: TCP
+      name: mongo

@@ -25,9 +25,9 @@ build-optimized: ## Build all services with optimizations
 	@echo "Building optimized users service..."
 	cd server/users-service && CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags '-extldflags "-static"' -o users-service
 	@echo "Building optimized SDK..."
-	cd sdk && npm ci --only=production && npm run build
+	cd sdk && npm ci && npm run build
 	@echo "Building optimized client..."
-	cd client && npm ci --only=production && npm run build
+	cd client && npm ci --omit=dev && npm run build
 	@echo "All optimized services built successfully!"
 
 test: ## Run tests for all services
@@ -55,7 +55,7 @@ test-stress: ## Run stress tests (requires services to be running)
 
 test-integration: ## Run integration tests (requires services to be running)
 	@echo "Running integration tests..."
-	go test -v -timeout=5m ./tests/integration/...
+	cd tests/integration && go test -v -timeout=5m ./...
 	@echo "Integration tests completed!"
 
 test-all: test-comprehensive test-stress test-integration ## Run all tests including stress and integration tests
@@ -72,40 +72,48 @@ clean: ## Clean build artifacts
 
 dev: ## Start development environment
 	@echo "Starting development environment..."
-	docker-compose up --build
+	docker compose up --build
 
 docker-build: ## Build Docker images
 	@echo "Building Docker images..."
-	docker-compose build
+	docker compose build
 
 docker-up: ## Start Docker containers
 	@echo "Starting Docker containers..."
-	docker-compose up -d
+	docker compose up -d
 
 docker-down: ## Stop Docker containers
 	@echo "Stopping Docker containers..."
-	docker-compose down
+	docker compose down
 
 docker-logs: ## View Docker logs
-	docker-compose logs -f
+	docker compose logs -f
 
-deploy-k8s: ## Deploy to Kubernetes
+deploy-k8s: ## Deploy to Kubernetes with Helm (JWT_SECRET, TURN_PASSWORD required)
+	$(if $(JWT_SECRET),,$(error JWT_SECRET is required: make deploy-k8s JWT_SECRET=... TURN_PASSWORD=...))
+	$(if $(TURN_PASSWORD),,$(error TURN_PASSWORD is required: make deploy-k8s JWT_SECRET=... TURN_PASSWORD=...))
 	@echo "Deploying to Kubernetes..."
-	kubectl apply -f .deployment/mongo-deployment.yml
-	kubectl apply -f .deployment/server-deployment.yml
-	kubectl apply -f .deployment/client-deployment.yml
-	kubectl apply -f .deployment/ingress.yml
+	helm upgrade --install videoconf ./helm/videoconf \
+		--set secrets.jwtSecret="$(JWT_SECRET)" \
+		--set secrets.turnPassword="$(TURN_PASSWORD)" \
+		$(if $(INGRESS_HOST),--set ingress.host="$(INGRESS_HOST)",) \
+		$(if $(TURN_PUBLIC_URL),--set turn.publicUrl="$(TURN_PUBLIC_URL)",) \
+		$(if $(WS_ALLOWED_ORIGINS),--set signalling.wsAllowedOrigins="$(WS_ALLOWED_ORIGINS)",)
 	@echo "Deployment completed!"
 
 undeploy-k8s: ## Remove from Kubernetes
 	@echo "Removing from Kubernetes..."
-	kubectl delete -f .deployment/
+	helm uninstall videoconf
 	@echo "Undeployment completed!"
+
+setup-env: ## Generate .env with random secrets (see scripts/setup-env.sh)
+	./scripts/setup-env.sh
 
 install-deps: ## Install dependencies
 	@echo "Installing Go dependencies..."
 	cd server/signalling-server && go mod tidy
 	cd server/users-service && go mod tidy
+	cd tests/integration && go mod tidy
 	@echo "Installing SDK dependencies..."
 	cd sdk && npm install
 	@echo "Installing client dependencies..."

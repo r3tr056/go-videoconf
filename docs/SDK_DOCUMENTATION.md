@@ -1,480 +1,192 @@
 # VideoConf SDK Documentation
 
-## 🎯 Overview
+Browser TypeScript SDK for mesh P2P video conferencing over the go-videoconf
+signalling server. Framework-agnostic (works in React, Angular, Vue, or plain
+TypeScript); published as `@videoconf/sdk`. MIT licensed.
 
-The VideoConf SDK is a comprehensive TypeScript library for building Google Meet level video conferencing applications. It provides enterprise-grade WebRTC functionality with advanced features like adaptive bitrate, noise suppression, virtual backgrounds, and real-time analytics.
+Source of truth: [`sdk/`](../sdk/) — tested (jest, ~94% coverage), typed,
+and consumed by the demo client in [`client/`](../client/).
 
-## 🚀 Quick Start
+## Installation
 
-### Installation
+The package publishes to GitHub Packages on release. Point the `@videoconf`
+scope at the registry first:
+
+```bash
+# .npmrc
+@videoconf:registry=https://npm.pkg.github.com
+```
 
 ```bash
 npm install @videoconf/sdk
 ```
 
-### Basic Usage
+## Quick Start
 
 ```typescript
-import { VideoConf } from '@videoconf/sdk';
+import { VideoconfSDK } from '@videoconf/sdk';
 
-// Initialize the SDK
-const videoConf = new VideoConf({
-  signallingServer: 'wss://your-signalling-server.com',
-  stunServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-  autoJoinAudio: true,
-  autoJoinVideo: true
+const sdk = new VideoconfSDK('api-key', 'project-id', {
+  signallingServerUrl: 'wss://meet.example.com',
 });
 
-// Create a meeting
-const sessionUrl = await videoConf.createSession({
-  title: 'Team Standup',
-  password: 'secure123',
-  maxParticipants: 50
+sdk.on('local-stream', (stream) => {
+  (document.getElementById('local') as HTMLVideoElement).srcObject = stream;
+});
+sdk.on('remote-stream', (stream, peerId) => {
+  console.log('remote stream from', peerId, stream);
+});
+sdk.on('stream-removed', (peerId) => {
+  console.log('peer left', peerId);
 });
 
-// Join a meeting
-await videoConf.joinSession(sessionUrl, 'secure123');
+const socket = await sdk.createSession('Team standup', 'secret');
+await sdk.joinSession(socket, 'secret');
+await sdk.initializeCall();
 
-// Handle events
-videoConf.on('participant-joined', (participant) => {
-  console.log(`${participant.username} joined the meeting`);
-});
+// ... later
+await sdk.leaveCall();
+```
 
-videoConf.on('media-received', (participantId, stream) => {
-  // Display remote video/audio
-  const videoElement = document.getElementById('remote-video');
-  videoElement.srcObject = stream;
+## Configuration
+
+```typescript
+new VideoconfSDK(apiKey, projectId, options?)
+```
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `signallingServerUrl` | `string` | page origin with `ws(s)` scheme | Signalling server WebSocket base URL |
+| `iceServers` | `RTCIceServer[]` | public STUN (`stun.l.google.com:19302`) | ICE servers for NAT traversal |
+
+Production deployments behind NAT should supply the bundled TURN servers:
+
+```typescript
+const sdk = new VideoconfSDK('api-key', 'project-id', {
+  signallingServerUrl: 'wss://meet.example.com',
+  iceServers: [
+    { urls: 'turn:turn.example.com:3478', username: 'user', credential: 'pass' },
+  ],
 });
 ```
 
-## 📚 Core Features
+## API Reference
 
 ### Session Management
 
-#### Creating Sessions
-```typescript
-const sessionConfig = {
-  title: 'Product Demo',
-  password: 'demo123',
-  isPrivate: true,
-  maxParticipants: 100,
-  recording: true
-};
+- `createSession(title: string, password: string): Promise<string>` —
+  creates a password-protected session; resolves with the session socket id.
+- `joinSession(sessionUrl: string, password: string): Promise<void>` —
+  joins a session (password required) and opens the signalling WebSocket.
+- `leaveCall(): Promise<void>` — notifies peers with `disconnect` and releases
+  all media tracks, peer connections, and the socket.
 
-const sessionUrl = await videoConf.createSession(sessionConfig);
-```
+### Media
 
-#### Joining Sessions
-```typescript
-// Join with password
-await videoConf.joinSession(sessionUrl, 'password123');
+- `initializeCall(): Promise<MediaStream>` — acquires camera + microphone via
+  `getUserMedia({ video: true, audio: true })`; emits `local-stream`.
+- `toggleVideo(enabled: boolean): void` / `toggleAudio(enabled: boolean): void` —
+  enable/disable the local tracks. Safe to call before `initializeCall` (no-op).
+- `getLocalStream(): MediaStream | null`
+- `getRemoteStreams(): Map<string, MediaStream>` — returns a copy keyed by peer id.
+- `getUserId(): string` — this client's generated id.
 
-// Join as guest (if allowed)
-await videoConf.joinSession(sessionUrl);
-```
+### Events (`on(event, listener)`)
 
-#### Leaving Sessions
-```typescript
-await videoConf.leaveSession();
-```
+| Event | Payload | Fired when |
+|---|---|---|
+| `local-stream` | `(stream)` | local media acquired |
+| `remote-stream` | `(stream, peerId)` | a peer's track arrives |
+| `stream-removed` | `(peerId)` | a peer disconnects |
+| `reconnecting` | `(attempt)` | signalling dropped; retry scheduled |
+| `reconnected` | — | signalling re-established, presence re-sent |
+| `disconnected` | — | reconnect backoff exhausted; call cleaned up |
 
-### Media Management
+Listener exceptions are caught and logged; they never break other listeners.
 
-#### Initialize Camera and Microphone
-```typescript
-const stream = await videoConf.initializeMedia({
-  video: {
-    width: { ideal: 1920 },
-    height: { ideal: 1080 },
-    frameRate: { ideal: 30 }
-  },
-  audio: {
-    echoCancellation: true,
-    noiseSuppression: true,
-    autoGainControl: true
-  }
-});
+## Signalling Protocol
 
-// Display local video
-const localVideo = document.getElementById('local-video');
-localVideo.srcObject = stream;
-```
+The SDK speaks to `GET /ws/{socket}` with JSON messages:
 
-#### Media Controls
-```typescript
-// Toggle audio
-const isAudioEnabled = videoConf.toggleAudio(); // Toggle current state
-videoConf.toggleAudio(false); // Mute
-videoConf.toggleAudio(true);  // Unmute
+| `type` | Direction | Purpose |
+|---|---|---|
+| `connect` | → server | announce presence on socket open |
+| `offer` / `answer` | ↔ peers (relayed) | SDP exchange, `description` is JSON |
+| `ice-candidate` | ↔ peers (relayed) | trickle ICE, `candidate` is JSON |
+| `disconnect` | → server | graceful leave |
 
-// Toggle video
-const isVideoEnabled = videoConf.toggleVideo(); // Toggle current state
-videoConf.toggleVideo(false); // Turn off camera
-videoConf.toggleVideo(true);  // Turn on camera
-```
+The server relays messages; media flows peer-to-peer (mesh). Messages with a
+`to` member route only to that member; `connect`/`disconnect` broadcast to the
+room. Mesh suits small rooms (a few participants, hard server cap of 8 per
+socket); a server-side SFU for larger rooms is a planned v2 addition.
 
-### Screen Sharing
+Dropped sockets reconnect automatically (1s/2s/4s/8s/16s backoff): presence is
+re-announced and existing peer connections are reused and renegotiated, so a
+brief network blip does not end the call. `leaveCall()` suppresses
+reconnecting. Known limitation: two peers joining in the same instant can
+cross offers (glare); the SDK logs and continues, and rejoining resolves it.
 
-```typescript
-// Start screen sharing
-const screenStream = await videoConf.startScreenShare({
-  includeAudio: true,
-  width: 1920,
-  height: 1080,
-  frameRate: 30
-});
+## React Integration
 
-// Display screen share
-const screenVideo = document.getElementById('screen-video');
-screenVideo.srcObject = screenStream;
+```jsx
+import React, { useEffect, useState } from 'react';
+import { VideoconfSDK } from '@videoconf/sdk';
 
-// Stop screen sharing
-videoConf.stopScreenShare();
-
-// Handle screen share events
-videoConf.on('screen-share-started', (participantId, stream) => {
-  console.log(`${participantId} started screen sharing`);
-});
-
-videoConf.on('screen-share-ended', (participantId) => {
-  console.log(`${participantId} stopped screen sharing`);
-});
-```
-
-### Recording
-
-```typescript
-// Start recording
-await videoConf.startRecording({
-  video: true,
-  audio: true,
-  format: 'webm',
-  quality: 'high'
-});
-
-// Stop recording and get download URL
-const recordingUrl = await videoConf.stopRecording();
-
-// Download the recording
-const link = document.createElement('a');
-link.href = recordingUrl;
-link.download = 'meeting-recording.webm';
-link.click();
-```
-
-### Chat Functionality
-
-```typescript
-// Send a chat message
-videoConf.sendChatMessage('Hello everyone!');
-
-// Handle incoming chat messages
-videoConf.on('chat-message', (message) => {
-  console.log(`${message.from}: ${message.message}`);
-  
-  // Display in chat UI
-  const chatContainer = document.getElementById('chat');
-  const messageElement = document.createElement('div');
-  messageElement.innerHTML = `
-    <strong>${message.from}</strong>
-    <span>${message.timestamp.toLocaleTimeString()}</span>
-    <p>${message.message}</p>
-  `;
-  chatContainer.appendChild(messageElement);
-});
-```
-
-## 🎛️ Advanced Features
-
-### Adaptive Bitrate Control
-
-```typescript
-import { AdvancedFeatures } from '@videoconf/sdk/advanced';
-
-const advanced = new AdvancedFeatures(videoConf);
-
-// Enable adaptive bitrate based on network conditions
-advanced.enableAdaptiveBitrate(true);
-
-// Monitor network quality
-videoConf.on('network-quality', (qualities) => {
-  qualities.forEach(quality => {
-    console.log(`${quality.participantId}: ${quality.quality} (${quality.latency}ms, ${quality.packetLoss}% loss)`);
-  });
-});
-```
-
-### Noise Suppression
-
-```typescript
-// Apply noise suppression to audio stream
-const localStream = videoConf.getLocalStream();
-if (localStream) {
-  const enhancedStream = await advanced.enableNoiseSuppression(localStream);
-}
-```
-
-### Virtual Backgrounds
-
-```typescript
-// Blur background
-const stream = videoConf.getLocalStream();
-const blurredStream = await advanced.enableVirtualBackground(stream, 'blur');
-
-// Use custom background image
-const customBgStream = await advanced.enableVirtualBackground(
-  stream, 
-  'image', 
-  'https://example.com/background.jpg'
-);
-
-// Remove background effects
-const normalStream = await advanced.enableVirtualBackground(stream, 'none');
-```
-
-## 🎨 React Components
-
-### Basic Video Conference Component
-
-```typescript
-import React, { useEffect, useRef, useState } from 'react';
-import { VideoConf, Participant } from '@videoconf/sdk';
-
-interface VideoConferenceProps {
-  sessionUrl: string;
-  password?: string;
-  onLeave: () => void;
-}
-
-export const VideoConference: React.FC<VideoConferenceProps> = ({
-  sessionUrl,
-  password,
-  onLeave
-}) => {
-  const [videoConf] = useState(() => new VideoConf({
-    signallingServer: process.env.REACT_APP_SIGNALLING_SERVER!
-  }));
-  
-  const [participants, setParticipants] = useState<Participant[]>([]);
-  const [isAudioEnabled, setIsAudioEnabled] = useState(true);
-  const [isVideoEnabled, setIsVideoEnabled] = useState(true);
-  const [isScreenSharing, setIsScreenSharing] = useState(false);
-  
-  const localVideoRef = useRef<HTMLVideoElement>(null);
+function VideoCall({ sessionUrl, password }) {
+  const [sdk, setSdk] = useState(null);
+  const [localStream, setLocalStream] = useState(null);
+  const [remoteStreams, setRemoteStreams] = useState(new Map());
 
   useEffect(() => {
-    const initializeConference = async () => {
-      try {
-        // Set up event listeners
-        videoConf.on('participant-joined', (participant) => {
-          setParticipants(prev => [...prev, participant]);
-        });
-        
-        videoConf.on('participant-left', (participantId) => {
-          setParticipants(prev => prev.filter(p => p.id !== participantId));
-        });
-        
-        videoConf.on('media-received', (participantId, stream) => {
-          const videoElement = document.getElementById(`video-${participantId}`) as HTMLVideoElement;
-          if (videoElement) {
-            videoElement.srcObject = stream;
-          }
-        });
-
-        // Join the session
-        await videoConf.joinSession(sessionUrl, password);
-        
-        // Initialize local media
-        const localStream = await videoConf.initializeMedia({
-          audio: true,
-          video: true
-        });
-        
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = localStream;
-        }
-        
-      } catch (error) {
-        console.error('Failed to initialize conference:', error);
-      }
-    };
-
-    initializeConference();
-
-    return () => {
-      videoConf.leaveSession();
-    };
-  }, [videoConf, sessionUrl, password]);
-
-  const handleToggleAudio = () => {
-    const enabled = videoConf.toggleAudio();
-    setIsAudioEnabled(enabled);
-  };
-
-  const handleToggleVideo = () => {
-    const enabled = videoConf.toggleVideo();
-    setIsVideoEnabled(enabled);
-  };
-
-  const handleToggleScreenShare = async () => {
-    if (isScreenSharing) {
-      videoConf.stopScreenShare();
-      setIsScreenSharing(false);
-    } else {
-      try {
-        await videoConf.startScreenShare();
-        setIsScreenSharing(true);
-      } catch (error) {
-        console.error('Screen share failed:', error);
-      }
-    }
-  };
-
-  const handleLeave = async () => {
-    await videoConf.leaveSession();
-    onLeave();
-  };
+    const client = new VideoconfSDK('api-key', 'project-id');
+    client.on('local-stream', setLocalStream);
+    client.on('remote-stream', (stream, peerId) => {
+      setRemoteStreams((prev) => new Map(prev).set(peerId, stream));
+    });
+    client.on('stream-removed', (peerId) => {
+      setRemoteStreams((prev) => {
+        const next = new Map(prev);
+        next.delete(peerId);
+        return next;
+      });
+    });
+    (async () => {
+      await client.joinSession(sessionUrl, password);
+      await client.initializeCall();
+    })();
+    setSdk(client);
+    return () => { client.leaveCall(); };
+  }, [sessionUrl, password]);
 
   return (
-    <div className="video-conference">
-      {/* Local video */}
-      <div className="local-video-container">
+    <div>
+      {localStream && (
         <video
-          ref={localVideoRef}
-          autoPlay
-          muted
-          playsInline
-          className="local-video"
+          ref={(el) => { if (el) el.srcObject = localStream; }}
+          autoPlay muted playsInline
         />
-      </div>
-
-      {/* Remote participants */}
-      <div className="participants-grid">
-        {participants.map(participant => (
-          <div key={participant.id} className="participant">
-            <video
-              id={`video-${participant.id}`}
-              autoPlay
-              playsInline
-              className="participant-video"
-            />
-            <div className="participant-info">
-              <span>{participant.username}</span>
-              {!participant.isAudioEnabled && <span>🔇</span>}
-              {!participant.isVideoEnabled && <span>📹</span>}
-              {participant.isScreenSharing && <span>🖥️</span>}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Controls */}
-      <div className="controls">
-        <button
-          onClick={handleToggleAudio}
-          className={`control-btn ${isAudioEnabled ? 'enabled' : 'disabled'}`}
-        >
-          {isAudioEnabled ? '🎤' : '🔇'}
-        </button>
-        
-        <button
-          onClick={handleToggleVideo}
-          className={`control-btn ${isVideoEnabled ? 'enabled' : 'disabled'}`}
-        >
-          {isVideoEnabled ? '📹' : '📷'}
-        </button>
-        
-        <button
-          onClick={handleToggleScreenShare}
-          className={`control-btn ${isScreenSharing ? 'enabled' : 'disabled'}`}
-        >
-          🖥️
-        </button>
-        
-        <button onClick={handleLeave} className="control-btn leave-btn">
-          📞
-        </button>
-      </div>
+      )}
+      {[...remoteStreams].map(([peerId, stream]) => (
+        <video
+          key={peerId}
+          ref={(el) => { if (el) el.srcObject = stream; }}
+          autoPlay playsInline
+        />
+      ))}
     </div>
   );
-};
+}
 ```
 
-## 🔧 Configuration
+See [`client/src/App.tsx`](../client/src/App.tsx) for the full working demo.
 
-### Environment Variables
+## Browser Support
 
-```bash
-# Signalling Server
-REACT_APP_SIGNALLING_SERVER=wss://your-signalling-server.com
+Any modern browser with WebRTC + WebSocket (Chrome and Firefox are covered by
+the release gate). Camera/mic access requires a secure context (HTTPS or
+localhost). The SDK is browser-only; it has no Node.js runtime support.
 
-# STUN/TURN Servers
-REACT_APP_STUN_SERVERS=stun:stun.l.google.com:19302
-REACT_APP_TURN_SERVERS=turn:your-turn-server.com:3478
+## Roadmap (v2, not in this release)
 
-# API Endpoints
-REACT_APP_USERS_API=https://your-users-api.com
-```
-
-### Advanced Configuration
-
-```typescript
-const config: VideoConfConfig = {
-  signallingServer: 'wss://signalling.example.com',
-  
-  // ICE Servers for NAT traversal
-  stunServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' }
-  ],
-  
-  turnServers: [
-    {
-      urls: 'turn:turn.example.com:3478',
-      username: 'username',
-      credential: 'password'
-    }
-  ],
-  
-  // Auto-join settings
-  autoJoinAudio: true,
-  autoJoinVideo: true,
-  
-  // Session limits
-  maxParticipants: 100,
-};
-
-const videoConf = new VideoConf(config);
-```
-
-## 📊 Performance Optimization
-
-### Best Practices
-
-1. **Adaptive Bitrate**: Enable adaptive bitrate to automatically adjust video quality based on network conditions
-2. **Audio Processing**: Use noise suppression and echo cancellation for better audio quality
-3. **Video Constraints**: Set appropriate video constraints based on use case
-4. **Connection Pooling**: Reuse WebSocket connections when possible
-5. **Lazy Loading**: Load features only when needed
-
-### Performance Monitoring
-
-```typescript
-// Monitor performance metrics
-videoConf.on('network-quality', (qualities) => {
-  const averageLatency = qualities.reduce((sum, q) => sum + q.latency, 0) / qualities.length;
-  
-  if (averageLatency > 200) {
-    console.warn('High latency detected:', averageLatency);
-    // Consider reducing video quality
-  }
-});
-
-// Monitor bandwidth usage
-const analytics = advanced.generateMeetingAnalytics();
-console.log('Bandwidth usage:', analytics.technicalMetrics.averageBandwidth);
-```
-
----
-
-Built with ❤️ by the VideoConf Team
+Server-side SFU for large rooms · recording · additional end-to-end encryption ·
+screen-sharing helpers · chat signalling.

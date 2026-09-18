@@ -1,16 +1,29 @@
 package main
 
 import (
+	"context"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/r3tr056/go-videoconf/users-service/controllers"
 	"github.com/r3tr056/go-videoconf/users-service/database"
+	"go.mongodb.org/mongo-driver/mongo/readpref"
 )
 
 func main() {
+	// Structured JSON logs to stdout (12-factor; collectors scrape the stream).
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+
+	// Fail fast on missing secrets: no default JWT secret is ever used.
+	if os.Getenv("JWT_SECRET") == "" {
+		log.Fatal("JWT_SECRET must be set (see .env.example)")
+	}
+
 	// Initialize database
 	err := database.Database.Init()
 	if err != nil {
@@ -19,7 +32,9 @@ func main() {
 	defer database.Database.Close()
 
 	// Create Gin router
-	router := gin.Default()
+	router := gin.New()
+	router.Use(gin.Recovery())
+	router.Use(metricsMiddleware("users-service"))
 
 	// CORS middleware
 	router.Use(func(c *gin.Context) {
@@ -36,12 +51,23 @@ func main() {
 	})
 
 	// Health check endpoint
+	// /health is shallow (process alive); /ready is deep (dependencies reachable).
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
-			"status": "healthy",
+			"status":  "healthy",
 			"service": "users-service",
 		})
 	})
+	router.GET("/ready", func(c *gin.Context) {
+		pingCtx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+		defer cancel()
+		if err := database.Database.Client.Ping(pingCtx, readpref.Primary()); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not ready"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "ready"})
+	})
+	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	// User routes
 	userController := &controllers.User{}
@@ -54,7 +80,7 @@ func main() {
 
 	// Start server
 	port := getenv("PORT", "8081")
-	log.Printf("Users service starting on port %s", port)
+	slog.Info("Users service starting", "port", port)
 	router.Run(":" + port)
 }
 

@@ -1,0 +1,11 @@
+apiVersion: v2
+name: videoconf
+description: Self-hosted open-source video conferencing (signalling, users, client, MongoDB, TURN)
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+home: https://github.com/r3tr056/go-videoconf
+sources:
+  - https://github.com/r3tr056/go-videoconf
+maintainers:
+  - name: go-videoconf contributors

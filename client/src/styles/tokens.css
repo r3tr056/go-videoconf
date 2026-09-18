@@ -1,0 +1,118 @@
+/**
+ * VideoConf graphite theme tokens.
+ *
+ * Built on the Radix Colors dark scales (MIT licensed, (c) Modulz / WorkOS),
+ * imported in index.tsx. These aliases give the app a single graphite
+ * vocabulary: near-monochrome surfaces, one teal accent, red for danger.
+ */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces: graphite ramp (gray dark 1-4) */
+  --vc-bg: var(--gray-1);
+  --vc-bg-subtle: var(--gray-2);
+  --vc-panel: var(--gray-3);
+  --vc-panel-raised: var(--gray-4);
+  --vc-panel-solid: #1b1b1f;
+
+  /* Borders */
+  --vc-border: var(--gray-6);
+  --vc-border-strong: var(--gray-7);
+  --vc-border-subtle: var(--gray-5);
+
+  /* Text */
+  --vc-text: var(--gray-12);
+  --vc-text-dim: var(--gray-11);
+  --vc-text-faint: var(--gray-10);
+
+  /* Accent: teal, used sparingly (focus, live states, links) */
+  --vc-accent-solid: var(--teal-9);
+  --vc-accent-hover: var(--teal-10);
+  --vc-accent-soft: var(--teal-3);
+  --vc-accent-text: var(--teal-11);
+  --vc-focus-ring: var(--teal-8);
+
+  /* Primary action: light solid on dark (graphite signature) */
+  --vc-primary-bg: #ededf0;
+  --vc-primary-bg-hover: #ffffff;
+  --vc-primary-text: #111113;
+
+  /* Danger */
+  --vc-danger-solid: var(--red-9);
+  --vc-danger-hover: var(--red-10);
+  --vc-danger-soft: var(--red-3);
+  --vc-danger-text: var(--red-11);
+
+  /* Live / success */
+  --vc-live: var(--green-9);
+  --vc-live-soft: var(--green-3);
+  --vc-live-text: var(--green-11);
+
+  /* Warning */
+  --vc-warn-soft: var(--amber-3);
+  --vc-warn-text: var(--amber-11);
+
+  /* Shape */
+  --vc-radius-sm: 6px;
+  --vc-radius-md: 8px;
+  --vc-radius-lg: 12px;
+  --vc-radius-pill: 999px;
+
+  /* Type */
+  --vc-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --vc-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas,
+    "Liberation Mono", monospace;
+
+  /* Elevation */
+  --vc-shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.55);
+  --vc-shadow-md: 0 6px 24px rgba(0, 0, 0, 0.45);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--vc-bg);
+  color: var(--vc-text);
+  font-family: var(--vc-font);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+/* Visible, consistent keyboard focus everywhere. */
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--vc-focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--vc-radius-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

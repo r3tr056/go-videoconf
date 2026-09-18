@@ -13,7 +13,7 @@ import (
 func TestHealthEndpoint(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.Default()
-	
+
 	router.GET("/health", func(ctx *gin.Context) {
 		ctx.JSON(200, gin.H{
 			"status":  "healthy",
@@ -26,7 +26,7 @@ func TestHealthEndpoint(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, 200, w.Code)
-	
+
 	var response map[string]interface{}
 	err := json.Unmarshal(w.Body.Bytes(), &response)
 	assert.NoError(t, err)

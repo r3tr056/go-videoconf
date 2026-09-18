@@ -19,7 +19,7 @@ import (
 func TestWebSocketConnection(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.Default()
-	
+
 	// Mock WebSocket endpoint
 	router.GET("/ws", func(c *gin.Context) {
 		upgrader := websocket.Upgrader{
@@ -27,14 +27,14 @@ func TestWebSocketConnection(t *testing.T) {
 				return true
 			},
 		}
-		
+
 		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
 			t.Errorf("Failed to upgrade connection: %v", err)
 			return
 		}
 		defer conn.Close()
-		
+
 		// Echo messages back
 		for {
 			messageType, msg, err := conn.ReadMessage()
@@ -130,26 +130,26 @@ func validateSession(session interfaces.Session) bool {
 func TestSessionCreationAPI(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.Default()
-	
+
 	router.POST("/session", func(c *gin.Context) {
 		var session interfaces.Session
 		if err := c.ShouldBindJSON(&session); err != nil {
 			c.JSON(400, gin.H{"error": "Invalid request body"})
 			return
 		}
-		
+
 		if !validateSession(session) {
 			c.JSON(400, gin.H{"error": "Invalid session data"})
 			return
 		}
-		
+
 		// Generate session URL
 		sessionURL := "session_" + session.Host + "_" + time.Now().Format("20060102150405")
-		
+
 		c.JSON(201, gin.H{
 			"session_url": sessionURL,
-			"host":       session.Host,
-			"title":      session.Title,
+			"host":        session.Host,
+			"title":       session.Title,
 		})
 	})
 
@@ -187,15 +187,15 @@ func TestSessionCreationAPI(t *testing.T) {
 			req := httptest.NewRequest("POST", "/session", bytes.NewBuffer(body))
 			req.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
-			
+
 			router.ServeHTTP(w, req)
-			
+
 			assert.Equal(t, tt.expectedStatus, w.Code)
-			
+
 			var response map[string]interface{}
 			err := json.Unmarshal(w.Body.Bytes(), &response)
 			require.NoError(t, err)
-			
+
 			for _, field := range tt.expectedFields {
 				assert.Contains(t, response, field)
 			}
@@ -206,7 +206,7 @@ func TestSessionCreationAPI(t *testing.T) {
 func TestConcurrentConnections(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.Default()
-	
+
 	var connectionCount int64
 	router.GET("/ws", func(c *gin.Context) {
 		upgrader := websocket.Upgrader{
@@ -214,15 +214,15 @@ func TestConcurrentConnections(t *testing.T) {
 				return true
 			},
 		}
-		
+
 		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
 			return
 		}
 		defer conn.Close()
-		
+
 		atomic.AddInt64(&connectionCount, 1)
-		
+
 		// Keep connection alive for testing
 		for {
 			_, _, err := conn.ReadMessage()
@@ -238,22 +238,22 @@ func TestConcurrentConnections(t *testing.T) {
 	// Test multiple concurrent connections
 	numConnections := 10
 	connections := make([]*websocket.Conn, numConnections)
-	
+
 	for i := 0; i < numConnections; i++ {
 		wsURL := "ws" + server.URL[4:] + "/ws"
 		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 		require.NoError(t, err)
 		connections[i] = conn
 	}
-	
+
 	// Allow some time for connections to establish
 	time.Sleep(100 * time.Millisecond)
-	
+
 	// Close all connections
 	for _, conn := range connections {
 		conn.Close()
 	}
-	
+
 	// Verify connections were handled
 	assert.Equal(t, int64(numConnections), atomic.LoadInt64(&connectionCount))
 }
@@ -263,7 +263,7 @@ func TestSignallingFlow(t *testing.T) {
 		Type string      `json:"type"`
 		Data interface{} `json:"data"`
 	}
-	
+
 	tests := []struct {
 		name         string
 		messageType  string
@@ -285,7 +285,7 @@ func TestSignallingFlow(t *testing.T) {
 			expectedType: "ice-candidate",
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			message := Message{
@@ -294,7 +294,7 @@ func TestSignallingFlow(t *testing.T) {
 					"test": "data",
 				},
 			}
-			
+
 			// Simulate message processing
 			assert.Equal(t, tt.expectedType, message.Type)
 			assert.NotNil(t, message.Data)

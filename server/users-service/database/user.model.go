@@ -1,16 +1,28 @@
 package database
 
 import (
+	"encoding/json"
 	"errors"
 
-	"gopkg.in/mgo.v2/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // user model
 type UserModel struct {
-	ID       bson.ObjectId `bson:"_id" json:"id"`
-	Name     string        `bson:"name" json:"name" example:"ankur"`
-	Password string        `bson:"password" json:"password" example:"test123"`
+	ID       primitive.ObjectID `bson:"_id" json:"-"`
+	Name     string             `bson:"name" json:"name" example:"ankur"`
+	Password string             `bson:"password" json:"password" example:"test123"`
+}
+
+// MarshalJSON keeps the historic hex-string "id" shape instead of the
+// driver's default {"$oid": ...} encoding.
+func (u UserModel) MarshalJSON() ([]byte, error) {
+	type wire struct {
+		ID       string `json:"id"`
+		Name     string `json:"name"`
+		Password string `json:"password"`
+	}
+	return json.Marshal(wire{ID: u.ID.Hex(), Name: u.Name, Password: u.Password})
 }
 
 // add user information

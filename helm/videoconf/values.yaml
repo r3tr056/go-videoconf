@@ -1,0 +1,88 @@
+# Default values for the videoconf chart. Secrets MUST be set at install time:
+#   helm install videoconf ./helm/videoconf \
+#     --set secrets.jwtSecret=$(openssl rand -base64 48) \
+#     --set secrets.turnPassword=$(openssl rand -base64 32) \
+#     --set ingress.host=meet.example.com \
+#     --set turn.publicUrl=turn:meet.example.com:3478
+
+global:
+  imageRegistry: ghcr.io
+  # Override when images live under a fork: --set global.imageRepository=<you>/go-videoconf
+  imageRepository: r3tr056/go-videoconf
+
+image:
+  tag: "1.0.0"
+  pullPolicy: IfNotPresent
+
+secrets:
+  jwtSecret: "" # required unless existingSecret is set: HS256 signing secret
+  # Always required, even with existingSecret: it is served to browsers in
+  # turn-config.json, so it is client-visible by design, not a server secret.
+  turnPassword: ""
+  mongoUsername: root
+  mongoPassword: rootpassword # change in production
+  # Use a pre-created Secret (sealed-secrets / external-secrets) with keys
+  # jwt-secret, turn-password, turn-username, mongo-username, mongo-password
+  # instead of the chart-managed one.
+  existingSecret: ""
+
+signalling:
+  image: signalling-server
+  # Rooms are in-memory fan-out: exactly 1 replica. Do not scale or autoscale.
+  wsAllowedOrigins: "" # e.g. https://meet.example.com (empty = allow all, dev only)
+
+users:
+  image: users-service
+  replicaCount: 2
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+
+client:
+  image: client
+  replicaCount: 2
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+
+mongo:
+  image: mongo
+  tag: "7.0"
+  storage: 5Gi
+  storageClass: ""
+  # Single instance. The replica-set runbook (Phase 4) documents HA.
+
+turn:
+  enabled: true
+  image: coturn/coturn
+  tag: "4.6.3"
+  realm: videoconf
+  user: videoconf
+  # URL browsers use for relay. MUST be reachable from client networks.
+  publicUrl: turn:localhost:3478
+  # Public IP coturn advertises. Required on WAN; empty lets coturn default.
+  externalIP: ""
+  # TURN needs direct UDP; host networking is the pragmatic v1 Answer.
+  hostNetwork: true
+  minPort: 49160
+  maxPort: 49200
+
+ingress:
+  enabled: true
+  className: nginx
+  host: chart-example.local
+  tls:
+    enabled: false
+    secretName: videoconf-tls
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi

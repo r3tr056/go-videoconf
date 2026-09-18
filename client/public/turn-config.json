@@ -1,0 +1,6 @@
+{
+  "url": "turn:localhost:3478",
+  "username": "videoconf",
+  "credential": "change-me-to-a-long-random-secret",
+  "_comment": "Local-dev defaults served by CRA from public/. Production images overwrite this file at build from TURN_* (compose) or mount it from a ConfigMap (Helm). Use real credentials per deployment."
+}

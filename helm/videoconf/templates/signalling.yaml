@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "videoconf.fullname" . }}-signalling
+  labels:
+    {{- include "videoconf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: signalling
+spec:
+  # Exactly 1: rooms are in-memory fan-out and do not span instances.
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "videoconf.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: signalling
+  template:
+    metadata:
+      labels:
+        {{- include "videoconf.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: signalling
+    spec:
+      containers:
+        - name: signalling
+          image: {{ include "videoconf.image" (dict "root" . "name" .Values.signalling.image) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PORT
+              value: "8080"
+            - name: GIN_MODE
+              value: release
+            - name: DB_HOST
+              value: {{ include "videoconf.fullname" . }}-mongo
+            - name: DB_PORT
+              value: "27017"
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "videoconf.secretName" . }}
+                  key: mongo-username
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "videoconf.secretName" . }}
+                  key: mongo-password
+            - name: WS_ALLOWED_ORIGINS
+              value: {{ .Values.signalling.wsAllowedOrigins | quote }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "videoconf.fullname" . }}-signalling
+  labels:
+    {{- include "videoconf.labels" . | nindent 4 }}
+    app.kubernetes.io/component: signalling
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "videoconf.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: signalling
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http

@@ -23,7 +23,7 @@ jobs:
     
     services:
       mongodb:
-        image: mongo:5.0
+        image: mongo:7.0
         env:
           MONGO_INITDB_ROOT_USERNAME: root
           MONGO_INITDB_ROOT_PASSWORD: password
@@ -41,7 +41,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: '1.22'
+        go-version: '1.23'
     
     - name: Cache Go modules
       uses: actions/cache@v3
@@ -59,13 +59,15 @@ jobs:
       working-directory: ./server/${{ matrix.service }}
       run: go test -v -race -coverprofile=coverage.out ./...
       env:
-        MONGODB_URI: mongodb://root:password@localhost:27017/test?authSource=admin
+        VIDEOCONF_LIVE_MONGO: "1"
+        DB_PASSWORD: password
     
     - name: Run comprehensive tests
       working-directory: ./server/${{ matrix.service }}
       run: go test -v -race -coverprofile=coverage_comprehensive.out ./tests/...
       env:
-        MONGODB_URI: mongodb://root:password@localhost:27017/test?authSource=admin
+        VIDEOCONF_LIVE_MONGO: "1"
+        DB_PASSWORD: password
     
     - name: Generate coverage report
       working-directory: ./server/${{ matrix.service }}
@@ -87,7 +89,7 @@ jobs:
     
     services:
       mongodb:
-        image: mongo:5.0
+        image: mongo:7.0
         env:
           MONGO_INITDB_ROOT_USERNAME: root
           MONGO_INITDB_ROOT_PASSWORD: password
@@ -100,7 +102,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: '1.22'
+        go-version: '1.23'
     
     - name: Run stress tests
       working-directory: ./server/signalling-server
@@ -170,6 +172,12 @@ jobs:
         cache: 'npm'
         cache-dependency-path: client/package-lock.json
     
+    - name: Build SDK dependency
+      working-directory: ./sdk
+      run: |
+        npm ci
+        npm run build
+
     - name: Install client dependencies
       working-directory: ./client
       run: npm ci
@@ -188,43 +196,69 @@ jobs:
         name: client-build
         path: client/build/
 
+  # Helm chart checks
+  helm-lint:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Helm
+      uses: azure/setup-helm@v4
+      with:
+        version: v3.16.3
+
+    - name: Lint chart
+      run: helm lint ./helm/videoconf --set secrets.jwtSecret=test --set secrets.turnPassword=test
+
+    - name: Render chart (plain + TLS)
+      run: |
+        helm template videoconf ./helm/videoconf --set secrets.jwtSecret=test --set secrets.turnPassword=test > /dev/null
+        helm template videoconf ./helm/videoconf --set secrets.jwtSecret=test --set secrets.turnPassword=test --set ingress.tls.enabled=true --set turn.externalIP=203.0.113.10 > /dev/null
+
+    - name: Chart must refuse empty secrets
+      run: |
+        if helm template videoconf ./helm/videoconf > /dev/null 2>&1; then echo "expected failure without secrets"; exit 1; fi
+
   # Integration tests
   integration-tests:
     runs-on: ubuntu-latest
     needs: [test-go-services, test-sdk]
-    
-    services:
-      mongodb:
-        image: mongo:5.0
-        env:
-          MONGO_INITDB_ROOT_USERNAME: root
-          MONGO_INITDB_ROOT_PASSWORD: password
-        ports:
-          - 27017:27017
 
+    # No job-level mongo here: compose owns mongodb on 27017, and a second
+    # binding would clash with the published port.
     steps:
     - uses: actions/checkout@v4
     
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: '1.22'
+        go-version: '1.23'
     
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
     
     - name: Start services with Docker Compose
       run: |
-        docker-compose up -d
+        docker compose up -d
         sleep 30  # Wait for services to start
+      env:
+        JWT_SECRET: ci-test-secret-not-for-production
+        TURN_USER: ci-turn-user
+        TURN_PASSWORD: ci-turn-test-secret
     
     - name: Wait for services to be healthy
       run: |
         timeout 60 bash -c 'until curl -f http://localhost:8080/health; do sleep 2; done'
         timeout 60 bash -c 'until curl -f http://localhost:8081/health; do sleep 2; done'
     
+    - name: Install integration test dependencies
+      working-directory: ./tests/integration
+      run: go mod download
+
     - name: Run integration tests
-      run: go test -v -timeout=5m ./tests/integration/...
+      working-directory: ./tests/integration
+      run: go test -v -timeout=5m ./...
       env:
         SIGNALLING_SERVER_URL: http://localhost:8080
         USERS_SERVICE_URL: http://localhost:8081
@@ -232,7 +266,7 @@ jobs:
     - name: Collect Docker logs
       if: failure()
       run: |
-        docker-compose logs > docker-logs.txt
+        docker compose logs > docker-logs.txt
     
     - name: Upload Docker logs
       if: failure()
@@ -243,32 +277,45 @@ jobs:
     
     - name: Stop services
       if: always()
-      run: docker-compose down
+      run: docker compose down
 
   # Security scanning
   security-scan:
     runs-on: ubuntu-latest
-    
+
+    permissions:
+      contents: read
+      security-events: write
+
     steps:
     - uses: actions/checkout@v4
-    
-    - name: Run Trivy vulnerability scanner
-      uses: aquasecurity/trivy-action@master
-      with:
-        scan-type: 'fs'
-        scan-ref: '.'
-        format: 'sarif'
-        output: 'trivy-results.sarif'
-    
-    - name: Upload Trivy scan results to GitHub Security tab
-      uses: github/codeql-action/upload-sarif@v2
-      with:
-        sarif_file: 'trivy-results.sarif'
-    
-    - name: Run CodeQL Analysis
-      uses: github/codeql-action/analyze@v2
+
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
       with:
         languages: go, javascript
+
+    - name: Autobuild
+      uses: github/codeql-action/autobuild@v3
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@0.36.0
+      with:
+        scan-type: fs
+        scan-ref: .
+        scanners: vuln,secret
+        severity: CRITICAL,HIGH
+        exit-code: '1'
+        format: sarif
+        output: trivy-results.sarif
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: trivy-results.sarif
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
 
   # Build and push Docker images
   build-and-push-images:
@@ -290,8 +337,13 @@ jobs:
             context: ./server/users-service
             image: users-service
           - name: client
-            context: ./client
+            context: .
+            dockerfile: ./client/Dockerfile
             image: client
+            args: |
+              TURN_PUBLIC_URL=turn:localhost:3478
+              TURN_USER=ci-turn-user
+              TURN_PASSWORD=ci-turn-test-secret
     
     steps:
     - name: Checkout repository
@@ -323,7 +375,11 @@ jobs:
       uses: docker/build-push-action@v5
       with:
         context: ${{ matrix.service.context }}
+        file: ${{ matrix.service.dockerfile }}
+        build-args: ${{ matrix.service.args }}
         push: true
+        sbom: true
+        provenance: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
@@ -395,10 +451,49 @@ jobs:
           
           ## SDK Package
           - `@videoconf/sdk@${{ steps.version.outputs.VERSION }}`
+
+          ## SBOMs
+          - `sbom-signalling-server.spdx.json`
+          - `sbom-users-service.spdx.json`
+          - `sbom-client.spdx.json`
         draft: false
         prerelease: ${{ contains(steps.version.outputs.VERSION, '-') }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Generate SBOMs for release images
+      uses: anchore/sbom-action@v0.24.2
+      with:
+        image: ghcr.io/${{ github.repository }}/signalling-server:${{ steps.version.outputs.VERSION }}
+        format: spdx-json
+        output-file: sbom-signalling-server.spdx.json
+
+    - name: Generate SBOM for users image
+      uses: anchore/sbom-action@v0.24.2
+      with:
+        image: ghcr.io/${{ github.repository }}/users-service:${{ steps.version.outputs.VERSION }}
+        format: spdx-json
+        output-file: sbom-users-service.spdx.json
+
+    - name: Generate SBOM for client image
+      uses: anchore/sbom-action@v0.24.2
+      with:
+        image: ghcr.io/${{ github.repository }}/client:${{ steps.version.outputs.VERSION }}
+        format: spdx-json
+        output-file: sbom-client.spdx.json
+
+    - name: Attach SBOMs to release
+      run: |
+        gh release upload "v${{ steps.version.outputs.VERSION }}" sbom-*.spdx.json --clobber
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # Deploy to staging
   deploy-staging:
